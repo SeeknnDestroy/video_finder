@@ -28,9 +28,7 @@ ITEM_STATUS_SKIPPED = "skipped"
 
 class WorkerRunRequest(BaseModel):
     db_path: str
-    model_size: str = "turbo"
     language: str | None = None
-    compute_type: str = "int8"
     max_concurrency: int = Field(default=1, ge=1)
     poll_seconds: float = Field(default=2.0, gt=0)
     run_once: bool = False
@@ -79,9 +77,7 @@ async def run_transcription_worker(*, request: WorkerRunRequest) -> WorkerRunRes
 
     processed_count = 0
     logger.info(
-        "Transcription worker started model=%s compute_type=%s concurrency=%s fallback_language=%s poll_seconds=%.2f",
-        request.model_size,
-        request.compute_type,
+        "Transcription worker started concurrency=%s fallback_language=%s poll_seconds=%.2f",
         request.max_concurrency,
         request.language,
         request.poll_seconds,
@@ -106,9 +102,7 @@ async def run_transcription_worker(*, request: WorkerRunRequest) -> WorkerRunRes
                 batch_summary = await process_claimed_items(
                     db=db,
                     claimed_items=claimed_items,
-                    model_size=request.model_size,
                     language=request.language,
-                    compute_type=request.compute_type,
                     max_concurrency=request.max_concurrency,
                 )
                 processed_count += batch_summary.processed_count
@@ -222,9 +216,7 @@ async def process_claimed_items(
     *,
     db: aiosqlite.Connection,
     claimed_items: list[ClaimedJobItem],
-    model_size: str,
     language: str | None,
-    compute_type: str,
     max_concurrency: int,
 ) -> BatchProcessSummary:
     if not claimed_items:
@@ -242,9 +234,7 @@ async def process_claimed_items(
             return await process_job_item(
                 db=db,
                 claimed_item=claimed_item,
-                model_size=model_size,
                 language=language,
-                compute_type=compute_type,
             )
 
     batch_started_at = perf_counter()
@@ -282,9 +272,7 @@ async def process_job_item(
     *,
     db: aiosqlite.Connection,
     claimed_item: ClaimedJobItem,
-    model_size: str,
     language: str | None,
-    compute_type: str,
 ) -> ItemProcessResult:
     item_started_at = perf_counter()
     resolved_language = claimed_item.language_override or language
@@ -292,9 +280,7 @@ async def process_job_item(
     transcription_result = await transcribe_video(
         request=TranscribeVideoRequest(
             video_id=claimed_item.video_id,
-            model_size=model_size,
             language=resolved_language,
-            compute_type=compute_type,
         )
     )
 

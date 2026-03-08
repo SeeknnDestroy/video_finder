@@ -11,10 +11,9 @@ from pydantic import BaseModel, Field
 class AppConfig(BaseModel):
     app_db_path: str = Field(default="./data/video_finder.db")
     youtube_api_key: str | None = None
+    groq_api_key: str | None = None
     log_level: str = Field(default="INFO")
-    transcribe_model_size: str = Field(default="turbo")
     transcribe_language: str | None = None
-    transcribe_compute_type: str = Field(default="int8")
     transcribe_worker_concurrency: int = Field(default=1, ge=1)
     transcribe_job_max_candidates: int = Field(default=200, ge=1)
     transcribe_worker_poll_seconds: float = Field(default=2.0, gt=0)
@@ -34,16 +33,13 @@ def load_dotenv_files() -> None:
 def get_app_config() -> AppConfig:
     load_dotenv_files()
     raw_transcribe_language = os.getenv("TRANSCRIBE_LANGUAGE", "").strip()
-    raw_transcribe_model_size = os.getenv("TRANSCRIBE_MODEL_SIZE", "turbo").strip()
-    raw_transcribe_compute_type = os.getenv("TRANSCRIBE_COMPUTE_TYPE", "int8").strip()
 
     return AppConfig(
         app_db_path=os.getenv("APP_DB_PATH", "./data/video_finder.db"),
         youtube_api_key=os.getenv("YOUTUBE_API_KEY"),
+        groq_api_key=os.getenv("GROQ_API_KEY"),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        transcribe_model_size=raw_transcribe_model_size or "turbo",
         transcribe_language=raw_transcribe_language or None,
-        transcribe_compute_type=raw_transcribe_compute_type or "int8",
         transcribe_worker_concurrency=parse_positive_integer_env(
             raw_value=os.getenv("TRANSCRIBE_WORKER_CONCURRENCY"),
             default_value=1,

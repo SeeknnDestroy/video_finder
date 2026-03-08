@@ -14,9 +14,7 @@ if __name__ == "__main__":
         run_transcription_worker(
             request=WorkerRunRequest(
                 db_path=config.app_db_path,
-                model_size=config.transcribe_model_size,
                 language=config.transcribe_language,
-                compute_type=config.transcribe_compute_type,
                 max_concurrency=config.transcribe_worker_concurrency,
                 poll_seconds=config.transcribe_worker_poll_seconds,
                 run_once=True,

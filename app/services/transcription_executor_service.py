@@ -4,24 +4,25 @@ import asyncio
 import html
 import importlib
 import json
+import mimetypes
 import shutil
 import tempfile
 from pathlib import Path
-from threading import Lock
-from typing import Any
 from urllib.request import urlopen
 
+import httpx
 from pydantic import BaseModel, Field
 
-_WHISPER_MODEL_CACHE: dict[tuple[str, str], Any] = {}
-_WHISPER_MODEL_LOCK = Lock()
+from app.core.config import get_app_config
+
+GROQ_TRANSCRIPTIONS_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
+GROQ_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 class TranscribeVideoRequest(BaseModel):
     video_id: str = Field(min_length=1)
-    model_size: str = Field(default="turbo", min_length=1)
     language: str | None = None
-    compute_type: str = Field(default="int8", min_length=1)
 
 
 class TranscribeVideoResult(BaseModel):
@@ -54,28 +55,28 @@ async def transcribe_video(*, request: TranscribeVideoRequest) -> TranscribeVide
             language=caption_result.language,
         )
 
-    whisper_runtime_error = get_whisper_runtime_error_message()
-    if whisper_runtime_error:
+    groq_api_key = get_groq_api_key()
+    if not groq_api_key:
+        groq_runtime_error = "GROQ_API_KEY is not configured."
         if caption_result.error_message:
             return TranscribeVideoResult(
                 is_successful=False,
                 error_message=(
                     f"{caption_result.error_message} "
-                    f"Local transcription fallback is unavailable: {whisper_runtime_error}"
+                    f"Groq transcription fallback is unavailable: {groq_runtime_error}"
                 ),
             )
 
-        return TranscribeVideoResult(is_successful=False, error_message=whisper_runtime_error)
+        return TranscribeVideoResult(is_successful=False, error_message=groq_runtime_error)
 
     audio_path: str | None = None
     try:
         audio_path = await asyncio.to_thread(download_video_audio, video_id=request.video_id)
         transcription_payload = await asyncio.to_thread(
-            run_transcription,
+            run_groq_transcription,
             audio_path=audio_path,
-            model_size=request.model_size,
-            compute_type=request.compute_type,
             language=request.language,
+            api_key=groq_api_key,
         )
     except Exception as exc:
         return TranscribeVideoResult(
@@ -340,14 +341,16 @@ def get_yt_dlp_runtime_error_message() -> str | None:
     return None
 
 
-def get_whisper_runtime_error_message() -> str | None:
-    if shutil.which("ffmpeg") is None:
-        return "ffmpeg is not installed or not on PATH."
+def get_groq_api_key() -> str | None:
+    raw_api_key = get_app_config().groq_api_key
+    if raw_api_key is None:
+        return None
 
-    if not has_module(module_name="faster_whisper"):
-        return "faster-whisper is not installed."
+    normalized_api_key = raw_api_key.strip()
+    if not normalized_api_key:
+        return None
 
-    return None
+    return normalized_api_key
 
 
 def has_module(*, module_name: str) -> bool:
@@ -383,53 +386,109 @@ def download_video_audio(*, video_id: str) -> str:
     return str(downloaded_files[0])
 
 
-def run_transcription(
+def run_groq_transcription(
     *,
     audio_path: str,
-    model_size: str,
-    compute_type: str,
     language: str | None,
+    api_key: str,
 ) -> dict[str, str | None]:
-    model = get_whisper_model(model_size=model_size, compute_type=compute_type)
-    segments, info = model.transcribe(
-        audio_path,
-        language=language,
-        vad_filter=True,
-    )
+    audio_file_path = Path(audio_path)
+    if not audio_file_path.exists():
+        raise RuntimeError("Downloaded audio file is missing.")
 
-    raw_segment_texts = [
-        segment.text.strip()
-        for segment in segments
-        if isinstance(segment.text, str) and segment.text.strip()
-    ]
-    full_text = " ".join(raw_segment_texts).strip()
-    if not full_text:
-        raise RuntimeError("Transcription produced empty text.")
+    audio_size_bytes = audio_file_path.stat().st_size
+    if audio_size_bytes > GROQ_MAX_UPLOAD_BYTES:
+        raise RuntimeError(
+            "Downloaded audio is "
+            f"{format_bytes_as_megabytes(byte_count=audio_size_bytes)}, exceeding Groq's 25 MB "
+            "direct upload limit. Audio chunking is not implemented."
+        )
 
-    detected_language = language or getattr(info, "language", None)
+    content_type, _ = mimetypes.guess_type(audio_file_path.name)
+    form_data = {
+        "model": GROQ_TRANSCRIPTION_MODEL,
+        "response_format": "json",
+        "temperature": "0",
+    }
+    if language:
+        form_data["language"] = language
+
+    try:
+        with audio_file_path.open("rb") as audio_file:
+            response = httpx.post(
+                GROQ_TRANSCRIPTIONS_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                data=form_data,
+                files={
+                    "file": (
+                        audio_file_path.name,
+                        audio_file,
+                        content_type or "application/octet-stream",
+                    )
+                },
+                timeout=httpx.Timeout(90.0, connect=10.0),
+            )
+    except httpx.TimeoutException as exc:
+        raise RuntimeError("Groq transcription request timed out.") from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Groq transcription request failed: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise RuntimeError(format_groq_api_error(response=response))
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError("Groq transcription returned invalid JSON.") from exc
+
+    raw_text = payload.get("text")
+    if not isinstance(raw_text, str) or not raw_text.strip():
+        raise RuntimeError("Groq transcription produced empty text.")
+
     return {
-        "text": full_text,
-        "language": detected_language,
+        "text": normalize_caption_text(raw_text=raw_text),
+        "language": language or None,
     }
 
 
-def get_whisper_model(*, model_size: str, compute_type: str):
-    cache_key = (model_size, compute_type)
+def format_bytes_as_megabytes(*, byte_count: int) -> str:
+    return f"{byte_count / (1024 * 1024):.1f} MB"
 
-    with _WHISPER_MODEL_LOCK:
-        cached_model = _WHISPER_MODEL_CACHE.get(cache_key)
-        if cached_model is not None:
-            return cached_model
 
-        faster_whisper_module = importlib.import_module("faster_whisper")
-        model = faster_whisper_module.WhisperModel(
-            model_size,
-            device="auto",
-            compute_type=compute_type,
-        )
-        _WHISPER_MODEL_CACHE[cache_key] = model
+def format_groq_api_error(*, response: httpx.Response) -> str:
+    message = extract_groq_error_message(response=response)
+    if message:
+        return f"Groq transcription failed with status {response.status_code}: {message}"
 
-    return model
+    return f"Groq transcription failed with status {response.status_code}."
+
+
+def extract_groq_error_message(*, response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        error_payload = payload.get("error")
+        if isinstance(error_payload, dict):
+            error_message = error_payload.get("message")
+            if isinstance(error_message, str) and error_message.strip():
+                return error_message.strip()
+
+        direct_message = payload.get("message")
+        if isinstance(direct_message, str) and direct_message.strip():
+            return direct_message.strip()
+
+    body_text = response.text.strip()
+    if not body_text:
+        return None
+
+    compact_text = " ".join(body_text.split())
+    if len(compact_text) > 300:
+        return f"{compact_text[:297]}..."
+
+    return compact_text
 
 
 def delete_audio_artifacts(*, audio_path: str | None) -> None:
