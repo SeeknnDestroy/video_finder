@@ -9,18 +9,61 @@
     </script>
   {% endif %}
 
-  <section class="panel">
+  <section class="hero-stage hero-stage--progress">
+    <div class="hero-copy">
+      <p class="eyebrow">Queue status</p>
+      <h1>Transcription Progress</h1>
+      <p class="hero-summary">
+        Track the queue, spot failures fast, and jump back to search.
+      </p>
+      <div class="hero-actions">
+        <a class="button-link button-link--primary" href="/">Back to search</a>
+        {% if job_status %}
+          <a class="button-link" href="/progress/{{ job_status.job_id }}">Refresh now</a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if job_status %}
+      <aside class="hero-aside panel panel--tinted">
+        <p class="eyebrow">Overview</p>
+        {% set processed_count = job_status.completed_count + job_status.failed_count + job_status.skipped_count %}
+        {% set progress_percent = (processed_count * 100 // (job_status.total_count if job_status.total_count else 1)) %}
+        <div class="progress-hero">
+          <div class="progress-hero__top">
+            <span class="status-pill status-pill--{{ job_status.status }}">{{ job_status.status }}</span>
+            <strong>{{ progress_percent }}%</strong>
+          </div>
+          <div class="progress-bar" aria-hidden="true">
+            <span style="width: {{ progress_percent }}%;"></span>
+          </div>
+          <p>{{ processed_count }} of {{ job_status.total_count }} items have reached a terminal state.</p>
+        </div>
+      </aside>
+    {% endif %}
+  </section>
+
+  <section class="panel results-panel">
     <div class="results-header">
-      <h2>Transcription Progress</h2>
+      <div>
+        <p class="eyebrow">Details</p>
+        <h2>Transcription Progress</h2>
+      </div>
       <a href="/">Back to search</a>
     </div>
 
     {% if job_status %}
-      <p><strong>Job ID:</strong> <code>{{ job_status.job_id }}</code></p>
-      <p><strong>Status:</strong> {{ job_status.status }}</p>
-      <p><strong>Created:</strong> {{ job_status.created_at }}</p>
-      <p><strong>Started:</strong> {{ job_status.started_at or "-" }}</p>
-      <p><strong>Finished:</strong> {{ job_status.finished_at or "-" }}</p>
+      <div class="detail-grid">
+        <article class="detail-card">
+          <p><strong>Job ID:</strong> <code>{{ job_status.job_id }}</code></p>
+          <p><strong>Status:</strong> {{ job_status.status }}</p>
+        </article>
+        <article class="detail-card">
+          <p><strong>Created:</strong> {{ job_status.created_at }}</p>
+          <p><strong>Started:</strong> {{ job_status.started_at or "-" }}</p>
+          <p><strong>Finished:</strong> {{ job_status.finished_at or "-" }}</p>
+        </article>
+      </div>
 
       <div class="grid-three">
         <div class="metric-card">
@@ -60,11 +103,17 @@
       <a class="refresh-link" href="/progress/{{ job_status.job_id }}">Refresh now</a>
 
       {% if job_status.items %}
-        <h3>Items</h3>
+        <div class="items-heading">
+          <h3>Items</h3>
+          <p class="field-note">Latest state for each queued video.</p>
+        </div>
         <div class="job-item-list">
           {% for item in job_status.items %}
-            <article class="job-item-card">
-              <p><strong>{{ item.video_id }}</strong></p>
+            <article class="job-item-card job-item-card--{{ item.status }}">
+              <div class="job-item-card__header">
+                <p><strong>{{ item.video_id }}</strong></p>
+                <span class="status-pill status-pill--{{ item.status }}">{{ item.status }}</span>
+              </div>
               <p>Status: {{ item.status }}</p>
               {% if item.error_message %}
                 <p>Error: {{ item.error_message }}</p>

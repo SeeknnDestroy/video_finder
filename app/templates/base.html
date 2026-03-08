@@ -3,20 +3,58 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    name="description"
+    content="Search your exported YouTube watch history with metadata filters, transcript phrase lookup, and local transcription progress tracking."
+  />
   <title>{% block title %}YouTube Video Finder{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
-<body>
+<body class="{% block body_class %}page-shell{% endblock %}">
   <div class="page-bg"></div>
+  <div class="page-noise"></div>
   <main class="layout">
-    <header class="hero">
-      <h1>YouTube Video Finder</h1>
-      <p>Search watched videos from your Google Takeout history.</p>
+    <header class="site-chrome">
+      <a class="brand-mark" href="/">
+        <span class="brand-mark__eyebrow">Private Watch Archive</span>
+        <span class="brand-mark__title">YouTube Video Finder</span>
+      </a>
+
+      <nav class="site-nav" aria-label="Primary">
+        <a
+          href="/"
+          class="{% if request.url.path == '/' %}is-active{% endif %}"
+        >
+          Home
+        </a>
+        <a
+          href="/#search-studio"
+          class="{% if request.url.path == '/' %}is-active{% endif %}"
+        >
+          Search
+        </a>
+        <a
+          href="{% if job_status %}/progress/{{ job_status.job_id }}{% else %}#{% endif %}"
+          class="{% if request.url.path[:9] == '/progress' %}is-active{% endif %}{% if not job_status %} is-disabled{% endif %}"
+          {% if not job_status %}aria-disabled="true"{% endif %}
+        >
+          Jobs
+        </a>
+      </nav>
     </header>
 
     {% if warnings %}
-      <section class="message warning">
-        <h2>Warnings</h2>
+      <section class="message warning warning-stack">
+        <div class="message-heading">
+          <span class="message-kicker">Operational Notes</span>
+          <h2>Warnings</h2>
+        </div>
         <ul>
           {% for warning in warnings %}
             <li>{{ warning }}</li>
