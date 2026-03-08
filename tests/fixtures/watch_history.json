@@ -1,0 +1,37 @@
+[
+  {
+    "header": "YouTube",
+    "title": "Watched Quick Pasta Recipe",
+    "titleUrl": "https://www.youtube.com/watch?v=abc123xyz11",
+    "subtitles": [
+      {
+        "name": "CookLab",
+        "url": "https://www.youtube.com/channel/UC123"
+      }
+    ],
+    "time": "2025-01-05T12:00:00Z"
+  },
+  {
+    "header": "YouTube",
+    "title": "Watched Daily Workout Shorts",
+    "titleUrl": "https://www.youtube.com/shorts/def456uvw22",
+    "subtitles": [
+      {
+        "name": "FitNow",
+        "url": "https://www.youtube.com/channel/UC456"
+      }
+    ],
+    "time": "2025-01-06T08:30:00Z"
+  },
+  {
+    "header": "YouTube",
+    "title": "Watched Invalid Entry",
+    "titleUrl": "https://www.example.com/watch?v=invalid",
+    "time": "2025-01-06T08:30:00Z"
+  },
+  {
+    "header": "YouTube",
+    "title": "Watched Missing URL",
+    "time": "2025-01-07T08:30:00Z"
+  }
+]
