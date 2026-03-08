@@ -19,7 +19,7 @@ The app is designed for personal, local analysis:
 - search by title keywords, date range, duration, and optional result limits
 - enrich missing metadata from the YouTube Data API and cache it locally
 - search transcript phrases and automatically queue missing transcript work
-- transcribe locally with `yt-dlp`, `ffmpeg`, and `faster-whisper`
+- use YouTube captions first, then fall back to Groq speech-to-text with `whisper-large-v3-turbo`
 
 ## Architecture
 
@@ -33,7 +33,7 @@ flowchart LR
     F --> G["YouTube Data API"]
     E --> H["Job queue"]
     H --> I["Background transcription worker"]
-    I --> J["yt-dlp + ffmpeg + faster-whisper"]
+    I --> J["yt-dlp + Groq STT"]
     D --> K["FastAPI + Jinja UI"]
     E --> K
 ```
@@ -46,7 +46,7 @@ flowchart LR
 | Views | Jinja2 + CSS | Server-rendered UI, no frontend build step |
 | Storage | SQLite | Watch history, metadata cache, transcript jobs |
 | Metadata | YouTube Data API | Optional, only needed for enrichment |
-| Transcription | `yt-dlp` + `faster-whisper` | Local pipeline, `ffmpeg` required |
+| Transcription | `yt-dlp` + Groq STT | Captions first, then `whisper-large-v3-turbo` cloud fallback |
 | Tests | `pytest` | Service and route coverage |
 
 ## Quick Start
@@ -54,7 +54,7 @@ flowchart LR
 ### Prerequisites
 
 - Python 3.11 or newer
-- `ffmpeg` on `PATH` if you want local transcription
+- Optional: Groq API key if you want cloud transcription fallback when captions are unavailable
 - Optional: YouTube Data API key for metadata enrichment
 
 ### Installation
@@ -63,7 +63,6 @@ flowchart LR
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env
 ```
 
 ### Run the app
@@ -96,11 +95,10 @@ The app loads environment variables from `.env` automatically if the file exists
 | --- | --- | --- |
 | `APP_DB_PATH` | `./data/video_finder.db` | SQLite database path |
 | `YOUTUBE_API_KEY` | unset | Enables metadata enrichment for uncached videos |
+| `GROQ_API_KEY` | unset | Enables Groq speech-to-text fallback when captions are unavailable |
 | `LOG_LEVEL` | `INFO` | App logging level |
-| `TRANSCRIBE_MODEL_SIZE` | `turbo` | Whisper model size |
 | `TRANSCRIBE_LANGUAGE` | auto-detect | Optional fixed transcript language |
-| `TRANSCRIBE_COMPUTE_TYPE` | `int8` | Whisper compute mode |
-| `TRANSCRIBE_WORKER_CONCURRENCY` | `1` | Concurrent local transcription jobs |
+| `TRANSCRIBE_WORKER_CONCURRENCY` | `1` | Concurrent transcription jobs |
 | `TRANSCRIBE_JOB_MAX_CANDIDATES` | `200` | Max candidate videos per queued job |
 | `TRANSCRIBE_WORKER_POLL_SECONDS` | `2` | Queue polling interval |
 | `TRANSCRIBE_WORKER_ENABLED` | `true` | Starts the in-process worker on app startup |
@@ -142,7 +140,8 @@ data/          local database path placeholder
 
 - This repository intentionally ignores personal/local artifacts such as `.env`, SQLite database files, and raw `watch-history.json` exports.
 - Without `YOUTUBE_API_KEY`, the app still works, but metadata-dependent filters may skip uncached videos.
-- Local transcription requires `ffmpeg` and can be CPU-intensive depending on the selected Whisper model.
+- When captions are unavailable, transcription falls back to Groq `whisper-large-v3-turbo` and requires `GROQ_API_KEY`.
+- Groq direct file uploads currently have a 25 MB limit; oversized audio fails clearly and is not chunked automatically.
 - The background worker runs inside the FastAPI process by default; disable it with `TRANSCRIBE_WORKER_ENABLED=false` if needed.
 
 ## CI
