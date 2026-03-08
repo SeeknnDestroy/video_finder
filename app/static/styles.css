@@ -534,6 +534,25 @@ button {
   margin-top: 0.35rem;
 }
 
+.warning-stack {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1rem 1.4rem;
+  align-items: start;
+}
+
+.warning-stack .message-heading {
+  min-width: 150px;
+}
+
+.warning-stack .message-heading h2 {
+  font-size: 1.2rem;
+}
+
+.warning-stack ul {
+  margin: 0;
+}
+
 label {
   display: block;
   margin: 0 0 0.35rem;
@@ -997,6 +1016,10 @@ code {
 
   .site-nav {
     width: 100%;
+  }
+
+  .warning-stack {
+    grid-template-columns: 1fr;
   }
 
   .site-nav a {
