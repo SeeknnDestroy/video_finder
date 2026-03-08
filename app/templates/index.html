@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}YouTube Video Finder{% endblock %}
+
+{% block content %}
+  <section class="panel">
+    <h2>Import Watch History</h2>
+    <p>Upload Google Takeout <code>watch-history.json</code>.</p>
+
+    <form action="/import/history" method="post" enctype="multipart/form-data" class="import-form">
+      <input type="file" name="history_file" accept="application/json,.json" required />
+      <button type="submit">Import</button>
+    </form>
+
+    {% if import_result %}
+      {% if import_result.is_successful %}
+        <div class="message success">
+          <h3>Import Complete</h3>
+          <p>Parsed: {{ import_result.total_parsed_count }}</p>
+          <p>Inserted: {{ import_result.inserted_count }}</p>
+          <p>Deduped: {{ import_result.deduped_count }}</p>
+          <p>Skipped: {{ import_result.skipped_count }}</p>
+        </div>
+      {% else %}
+        <div class="message error">
+          <h3>Import Failed</h3>
+          <p>{{ import_result.error_message }}</p>
+        </div>
+      {% endif %}
+    {% endif %}
+  </section>
+
+  {% include "_search_form.html" %}
+{% endblock %}

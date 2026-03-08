@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Transcription Progress | YouTube Video Finder{% endblock %}
+
+{% block content %}
+  {% if auto_refresh %}
+    <script>
+      setTimeout(function () { window.location.reload(); }, 3000);
+    </script>
+  {% endif %}
+
+  <section class="panel">
+    <div class="results-header">
+      <h2>Transcription Progress</h2>
+      <a href="/">Back to search</a>
+    </div>
+
+    {% if job_status %}
+      <p><strong>Job ID:</strong> <code>{{ job_status.job_id }}</code></p>
+      <p><strong>Status:</strong> {{ job_status.status }}</p>
+      <p><strong>Created:</strong> {{ job_status.created_at }}</p>
+      <p><strong>Started:</strong> {{ job_status.started_at or "-" }}</p>
+      <p><strong>Finished:</strong> {{ job_status.finished_at or "-" }}</p>
+
+      <div class="grid-three">
+        <div class="metric-card">
+          <span>Total</span>
+          <strong>{{ job_status.total_count }}</strong>
+        </div>
+        <div class="metric-card">
+          <span>Queued</span>
+          <strong>{{ job_status.queued_count }}</strong>
+        </div>
+        <div class="metric-card">
+          <span>Processing</span>
+          <strong>{{ job_status.processing_count }}</strong>
+        </div>
+        <div class="metric-card">
+          <span>Completed</span>
+          <strong>{{ job_status.completed_count }}</strong>
+        </div>
+        <div class="metric-card">
+          <span>Failed</span>
+          <strong>{{ job_status.failed_count }}</strong>
+        </div>
+        <div class="metric-card">
+          <span>Skipped</span>
+          <strong>{{ job_status.skipped_count }}</strong>
+        </div>
+      </div>
+
+      <p class="summary">
+        {% if auto_refresh %}
+          Auto-refresh is on (every 3 seconds) while this job is running.
+        {% else %}
+          Job finished. Manual refresh is available.
+        {% endif %}
+      </p>
+
+      <a class="refresh-link" href="/progress/{{ job_status.job_id }}">Refresh now</a>
+
+      {% if job_status.items %}
+        <h3>Items</h3>
+        <div class="job-item-list">
+          {% for item in job_status.items %}
+            <article class="job-item-card">
+              <p><strong>{{ item.video_id }}</strong></p>
+              <p>Status: {{ item.status }}</p>
+              {% if item.error_message %}
+                <p>Error: {{ item.error_message }}</p>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% else %}
+      <p>Job was not found.</p>
+    {% endif %}
+  </section>
+{% endblock %}
