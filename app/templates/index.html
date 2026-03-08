@@ -3,31 +3,109 @@
 {% block title %}YouTube Video Finder{% endblock %}
 
 {% block content %}
-  <section class="panel">
-    <h2>Import Watch History</h2>
-    <p>Upload Google Takeout <code>watch-history.json</code>.</p>
+  <section class="hero-stage">
+    <div class="hero-copy">
+      <p class="eyebrow">Private search</p>
+      <h1>Find the exact video, phrase, or moment you watched.</h1>
+      <p class="hero-summary">
+        Import your Takeout history, then search by title, date, duration, or spoken phrase.
+      </p>
+      <div class="hero-actions">
+        <a class="button-link button-link--primary" href="#import-studio">Import archive</a>
+        <a class="button-link" href="#search-studio">Search videos</a>
+      </div>
+    </div>
 
-    <form action="/import/history" method="post" enctype="multipart/form-data" class="import-form">
-      <input type="file" name="history_file" accept="application/json,.json" required />
-      <button type="submit">Import</button>
-    </form>
+    <aside class="hero-aside panel panel--tinted">
+      <p class="eyebrow">How it works</p>
+      <div class="step-list">
+        <article class="step-card">
+          <span class="step-index">01</span>
+          <div>
+            <h2>Import Watch History</h2>
+            <p>Drop in <code>watch-history.json</code>.</p>
+          </div>
+        </article>
+        <article class="step-card">
+          <span class="step-index">02</span>
+          <div>
+            <h2>Enrich the archive</h2>
+            <p>Metadata and transcripts fill in as needed.</p>
+          </div>
+        </article>
+        <article class="step-card">
+          <span class="step-index">03</span>
+          <div>
+            <h2>Search with precision</h2>
+            <p>Go from rough guesses to exact spoken phrases.</p>
+          </div>
+        </article>
+      </div>
+    </aside>
+  </section>
 
-    {% if import_result %}
-      {% if import_result.is_successful %}
-        <div class="message success">
-          <h3>Import Complete</h3>
-          <p>Parsed: {{ import_result.total_parsed_count }}</p>
-          <p>Inserted: {{ import_result.inserted_count }}</p>
-          <p>Deduped: {{ import_result.deduped_count }}</p>
-          <p>Skipped: {{ import_result.skipped_count }}</p>
+  <section class="dashboard-grid">
+    <article class="panel panel--feature" id="import-studio">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Import</p>
+          <h2>Import Watch History</h2>
         </div>
-      {% else %}
-        <div class="message error">
-          <h3>Import Failed</h3>
-          <p>{{ import_result.error_message }}</p>
-        </div>
+        <span class="badge">Google Takeout JSON</span>
+      </div>
+
+      <p class="section-copy">
+        Upload <code>watch-history.json</code> to populate the local archive.
+      </p>
+
+      <form action="/import/history" method="post" enctype="multipart/form-data" class="import-form">
+        <label class="file-field">
+          <span class="file-field__label">Choose export file</span>
+          <input type="file" name="history_file" accept="application/json,.json" required />
+        </label>
+        <button type="submit">Import</button>
+      </form>
+
+      <div class="micro-stats">
+        <article>
+          <span>Deduped ingest</span>
+          <strong>Event-level upserts</strong>
+        </article>
+        <article>
+          <span>Local storage</span>
+          <strong>SQLite archive</strong>
+        </article>
+        <article>
+          <span>Transcript ready</span>
+          <strong>Search pipeline</strong>
+        </article>
+      </div>
+
+      {% if import_result %}
+        {% if import_result.is_successful %}
+          <div class="message success">
+            <div class="message-heading">
+              <span class="message-kicker">Archive Ready</span>
+              <h3>Import Complete</h3>
+            </div>
+            <div class="stats-inline">
+              <p><span>Parsed</span><strong>{{ import_result.total_parsed_count }}</strong></p>
+              <p><span>Inserted</span><strong>{{ import_result.inserted_count }}</strong></p>
+              <p><span>Deduped</span><strong>{{ import_result.deduped_count }}</strong></p>
+              <p><span>Skipped</span><strong>{{ import_result.skipped_count }}</strong></p>
+            </div>
+          </div>
+        {% else %}
+          <div class="message error">
+            <div class="message-heading">
+              <span class="message-kicker">Import Error</span>
+              <h3>Import Failed</h3>
+            </div>
+            <p>{{ import_result.error_message }}</p>
+          </div>
+        {% endif %}
       {% endif %}
-    {% endif %}
+    </article>
   </section>
 
   {% include "_search_form.html" %}

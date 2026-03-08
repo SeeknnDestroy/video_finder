@@ -3,11 +3,76 @@
 {% block title %}Search Results | YouTube Video Finder{% endblock %}
 
 {% block content %}
+  <section class="hero-stage hero-stage--results">
+    <div class="hero-copy">
+      <p class="eyebrow">
+        {% if spoken_result %}
+          Transcript search
+        {% else %}
+          Metadata search
+        {% endif %}
+      </p>
+      <h1>Search Results</h1>
+      <p class="hero-summary">
+        {% if spoken_result %}
+          Transcript matches with queue status for anything still missing.
+        {% elif search_result and search_result.items %}
+          Matches from your local archive and metadata cache.
+        {% else %}
+          Refine the query without leaving the page.
+        {% endif %}
+      </p>
+      <div class="hero-actions">
+        <a class="button-link button-link--primary" href="/">Back to import</a>
+        <a class="button-link" href="#search-studio">Refine search</a>
+      </div>
+    </div>
+
+    <aside class="hero-aside panel panel--tinted">
+      <p class="eyebrow">Active filters</p>
+      <div class="chip-set">
+        {% if search_request.phrase %}
+          <span class="chip">Phrase: {{ search_request.phrase }}</span>
+        {% endif %}
+        {% if search_request.title_query %}
+          <span class="chip">Title: {{ search_request.title_query }}</span>
+        {% endif %}
+        {% if search_request.date_preset %}
+          <span class="chip">Preset: {{ search_request.date_preset }}</span>
+        {% endif %}
+        {% if search_request.watched_from %}
+          <span class="chip">From: {{ search_request.watched_from }}</span>
+        {% endif %}
+        {% if search_request.watched_to %}
+          <span class="chip">To: {{ search_request.watched_to }}</span>
+        {% endif %}
+        {% if search_request.duration_min_seconds is not none %}
+          <span class="chip">Min: {{ search_request.duration_min_seconds }}s</span>
+        {% endif %}
+        {% if search_request.duration_max_seconds is not none %}
+          <span class="chip">Max: {{ search_request.duration_max_seconds }}s</span>
+        {% endif %}
+        {% if search_request.limit %}
+          <span class="chip">Limit: {{ search_request.limit }}</span>
+        {% endif %}
+        {% if request.query_params.get('language') %}
+          <span class="chip">Language: {{ request.query_params.get('language') }}</span>
+        {% endif %}
+        {% if not search_request.phrase and not search_request.title_query and not search_request.date_preset and not search_request.watched_from and not search_request.watched_to and search_request.duration_min_seconds is none and search_request.duration_max_seconds is none and not search_request.limit and not request.query_params.get('language') %}
+          <span class="chip chip--muted">No filters applied</span>
+        {% endif %}
+      </div>
+    </aside>
+  </section>
+
   {% include "_search_form.html" %}
 
-  <section class="panel">
+  <section class="panel results-panel">
     <div class="results-header">
-      <h2>Search Results</h2>
+      <div>
+        <p class="eyebrow">Matches</p>
+        <h2>Search Results</h2>
+      </div>
       <a href="/">Back to import</a>
     </div>
 
@@ -32,17 +97,20 @@
       </div>
 
       {% if spoken_result.job_id %}
-        <p class="summary">
+        <p class="summary summary--spotlight">
           Queued {{ spoken_result.queued_count }} missing transcripts in the background.
           <a href="/progress/{{ spoken_result.job_id }}">View live progress</a>
         </p>
       {% elif spoken_result.queued_count > 0 %}
-        <p class="summary">Queued {{ spoken_result.queued_count }} missing transcripts in the background.</p>
+        <p class="summary summary--spotlight">Queued {{ spoken_result.queued_count }} missing transcripts in the background.</p>
       {% endif %}
 
       {% if job_status %}
-        <div class="message warning">
-          <h3>Current Progress Snapshot</h3>
+        <div class="message warning progress-snapshot">
+          <div class="message-heading">
+            <span class="message-kicker">Worker Snapshot</span>
+            <h3>Current Progress Snapshot</h3>
+          </div>
           <p>Status: {{ job_status.status }}</p>
           <p>
             Completed {{ job_status.completed_count }} / {{ job_status.total_count }}
@@ -57,19 +125,30 @@
         <div class="results-grid">
           {% for item in spoken_result.items %}
             <article class="video-card">
-              {% if item.thumbnail_url %}
-                <img src="{{ item.thumbnail_url }}" alt="Thumbnail for {{ item.title }}" loading="lazy" />
-              {% else %}
-                <div class="thumbnail-placeholder">No thumbnail</div>
-              {% endif %}
+              <div class="video-card__media">
+                {% if item.thumbnail_url %}
+                  <img src="{{ item.thumbnail_url }}" alt="Thumbnail for {{ item.title }}" loading="lazy" />
+                {% else %}
+                  <div class="thumbnail-placeholder">No thumbnail</div>
+                {% endif %}
+                <span class="video-card__mode">Transcript match</span>
+              </div>
 
               <div class="video-content">
-                <a href="{{ item.video_url }}" target="_blank" rel="noreferrer">{{ item.title }}</a>
-                <p>Watched: {{ item.watched_at }}</p>
-                <p>Duration: {% if item.duration_seconds is not none %}{{ item.duration_seconds }}s{% else %}Unknown{% endif %}</p>
+                <div class="video-content__header">
+                  <a href="{{ item.video_url }}" target="_blank" rel="noreferrer">{{ item.title }}</a>
+                  {% if item.channel_title %}
+                    <span class="video-pill">{{ item.channel_title }}</span>
+                  {% endif %}
+                </div>
+                <div class="video-meta">
+                  <p>Watched: {{ item.watched_at }}</p>
+                  <p>Duration: {% if item.duration_seconds is not none %}{{ item.duration_seconds }}s{% else %}Unknown{% endif %}</p>
+                </div>
                 {% if item.snippet %}
                   <p class="transcript-snippet">{{ item.snippet | safe }}</p>
                 {% endif %}
+                <a class="text-link" href="{{ item.video_url }}" target="_blank" rel="noreferrer">Open on YouTube</a>
               </div>
             </article>
           {% endfor %}
@@ -82,18 +161,26 @@
       <div class="results-grid">
         {% for item in search_result.items %}
           <article class="video-card">
-            {% if item.thumbnail_url %}
-              <img src="{{ item.thumbnail_url }}" alt="Thumbnail for {{ item.title }}" loading="lazy" />
-            {% else %}
-              <div class="thumbnail-placeholder">No thumbnail</div>
-            {% endif %}
+            <div class="video-card__media">
+              {% if item.thumbnail_url %}
+                <img src="{{ item.thumbnail_url }}" alt="Thumbnail for {{ item.title }}" loading="lazy" />
+              {% else %}
+                <div class="thumbnail-placeholder">No thumbnail</div>
+              {% endif %}
+              <span class="video-card__mode">Metadata match</span>
+            </div>
 
             <div class="video-content">
-              <a href="{{ item.video_url }}" target="_blank" rel="noreferrer">{{ item.title }}</a>
-              <p>Video ID: <code>{{ item.video_id }}</code></p>
-              <p>Channel: {{ item.channel_title or "Unknown" }}</p>
-              <p>Watched: {{ item.watched_at }}</p>
-              <p>Duration: {% if item.duration_seconds is not none %}{{ item.duration_seconds }}s{% else %}Unknown{% endif %}</p>
+              <div class="video-content__header">
+                <a href="{{ item.video_url }}" target="_blank" rel="noreferrer">{{ item.title }}</a>
+                <span class="video-pill">{{ item.channel_title or "Unknown" }}</span>
+              </div>
+              <div class="video-meta">
+                <p>Video ID: <code>{{ item.video_id }}</code></p>
+                <p>Watched: {{ item.watched_at }}</p>
+                <p>Duration: {% if item.duration_seconds is not none %}{{ item.duration_seconds }}s{% else %}Unknown{% endif %}</p>
+              </div>
+              <a class="text-link" href="{{ item.video_url }}" target="_blank" rel="noreferrer">Open on YouTube</a>
             </div>
           </article>
         {% endfor %}

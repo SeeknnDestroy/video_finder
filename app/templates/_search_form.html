@@ -1,105 +1,31 @@
-<form class="panel" action="/search" method="get">
-  <h2>Search Videos</h2>
-
-  <label for="phrase">Transcript phrase (optional)</label>
-  <input
-    id="phrase"
-    name="phrase"
-    type="text"
-    value="{{ search_request.phrase or '' }}"
-    placeholder="e.g. this recipe is ready"
-  />
-  <p class="field-note">Using transcript phrase can be slower on the first run.</p>
-
-  <label for="title_query">Title keywords (optional)</label>
-  <input
-    id="title_query"
-    name="title_query"
-    type="text"
-    value="{{ search_request.title_query or '' }}"
-    placeholder="e.g. quick recipe"
-  />
-
-  <div class="grid-two">
+<form class="panel search-panel" action="/search" method="get" id="search-studio">
+  <div class="section-heading section-heading--wide">
     <div>
-      <label for="duration_min_seconds">Min duration (seconds)</label>
-      <input
-        id="duration_min_seconds"
-        name="duration_min_seconds"
-        type="number"
-        min="0"
-        max="43200"
-        value="{{ search_request.duration_min_seconds if search_request.duration_min_seconds is not none else '' }}"
-        placeholder="Optional"
-      />
+      <p class="eyebrow">Search Console</p>
+      <h2>Search Videos</h2>
     </div>
-
-    <div>
-      <label for="duration_max_seconds">Max duration (seconds)</label>
-      <input
-        id="duration_max_seconds"
-        name="duration_max_seconds"
-        type="number"
-        min="1"
-        max="43200"
-        value="{{ search_request.duration_max_seconds if search_request.duration_max_seconds is not none else '' }}"
-        placeholder="Optional"
-      />
-    </div>
+    <p class="section-copy">
+      Title filters are fast. Add a phrase to search transcripts and queue missing ones.
+    </p>
   </div>
 
-  <div class="grid-three">
-    <div>
-      <label for="date_preset">Date preset</label>
-      <select id="date_preset" name="date_preset">
-        <option value="">No preset</option>
-        {% for preset_value, preset_label in date_preset_options %}
-          <option
-            value="{{ preset_value }}"
-            {% if search_request.date_preset == preset_value %}selected{% endif %}
-          >
-            {{ preset_label }}
-          </option>
-        {% endfor %}
-      </select>
-    </div>
+  <div class="form-columns">
+    <section class="form-block form-block--featured">
+      <div class="form-block__header">
+        <h3>Transcript phrase search</h3>
+        <span class="badge badge--soft">Transcript mode</span>
+      </div>
 
-    <div>
-      <label for="watched_from">Watched from</label>
+      <label for="phrase">Transcript phrase (optional)</label>
       <input
-        id="watched_from"
-        name="watched_from"
-        type="date"
-        value="{{ search_request.watched_from.isoformat() if search_request.watched_from else '' }}"
+        id="phrase"
+        name="phrase"
+        type="text"
+        value="{{ search_request.phrase or '' }}"
+        placeholder="e.g. this recipe is ready"
       />
-    </div>
+      <p class="field-note">Using transcript phrase can be slower on the first run.</p>
 
-    <div>
-      <label for="watched_to">Watched to</label>
-      <input
-        id="watched_to"
-        name="watched_to"
-        type="date"
-        value="{{ search_request.watched_to.isoformat() if search_request.watched_to else '' }}"
-      />
-    </div>
-  </div>
-
-  <div class="grid-two">
-    <div>
-      <label for="limit">Result limit</label>
-      <input
-        id="limit"
-        name="limit"
-        type="number"
-        min="1"
-        max="200"
-        value="{{ search_request.limit if search_request.limit is not none else '' }}"
-        placeholder="Optional"
-      />
-    </div>
-
-    <div>
       <label for="language">Transcript language (optional)</label>
       <input
         id="language"
@@ -108,8 +34,111 @@
         value="{{ request.query_params.get('language', '') }}"
         placeholder="e.g. en"
       />
-    </div>
+      <p class="field-note">Leave blank for auto.</p>
+    </section>
+
+    <section class="form-block">
+      <div class="form-block__header">
+        <h3>Metadata filters</h3>
+        <span class="badge badge--soft">Metadata mode</span>
+      </div>
+
+      <label for="title_query">Title keywords (optional)</label>
+      <input
+        id="title_query"
+        name="title_query"
+        type="text"
+        value="{{ search_request.title_query or '' }}"
+        placeholder="e.g. quick recipe"
+      />
+
+      <div class="grid-two">
+        <div>
+          <label for="duration_min_seconds">Min duration (seconds)</label>
+          <input
+            id="duration_min_seconds"
+            name="duration_min_seconds"
+            type="number"
+            min="0"
+            max="43200"
+            value="{{ search_request.duration_min_seconds if search_request.duration_min_seconds is not none else '' }}"
+            placeholder="Optional"
+          />
+        </div>
+
+        <div>
+          <label for="duration_max_seconds">Max duration (seconds)</label>
+          <input
+            id="duration_max_seconds"
+            name="duration_max_seconds"
+            type="number"
+            min="1"
+            max="43200"
+            value="{{ search_request.duration_max_seconds if search_request.duration_max_seconds is not none else '' }}"
+            placeholder="Optional"
+          />
+        </div>
+      </div>
+
+      <div class="grid-three">
+        <div>
+          <label for="date_preset">Date preset</label>
+          <select id="date_preset" name="date_preset">
+            <option value="">No preset</option>
+            {% for preset_value, preset_label in date_preset_options %}
+              <option
+                value="{{ preset_value }}"
+                {% if search_request.date_preset == preset_value %}selected{% endif %}
+              >
+                {{ preset_label }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label for="watched_from">Watched from</label>
+          <input
+            id="watched_from"
+            name="watched_from"
+            type="date"
+            value="{{ search_request.watched_from.isoformat() if search_request.watched_from else '' }}"
+          />
+        </div>
+
+        <div>
+          <label for="watched_to">Watched to</label>
+          <input
+            id="watched_to"
+            name="watched_to"
+            type="date"
+            value="{{ search_request.watched_to.isoformat() if search_request.watched_to else '' }}"
+          />
+        </div>
+      </div>
+
+      <div class="grid-two">
+        <div>
+          <label for="limit">Result limit</label>
+          <input
+            id="limit"
+            name="limit"
+            type="number"
+            min="1"
+            max="200"
+            value="{{ search_request.limit if search_request.limit is not none else '' }}"
+            placeholder="Optional"
+          />
+        </div>
+      </div>
+    </section>
   </div>
 
-  <button type="submit">Search Videos</button>
+  <div class="search-footer">
+    <div class="search-hints">
+      <span>Phrase = transcript mode</span>
+      <span>No phrase = metadata mode</span>
+    </div>
+    <button type="submit">Search Videos</button>
+  </div>
 </form>
