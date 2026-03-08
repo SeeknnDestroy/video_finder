@@ -1,0 +1,40 @@
+name: Bug report
+description: Capture a reproducible defect in the app or search pipeline.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the observed behavior and the expected behavior.
+      placeholder: Searching by phrase returns no matches even though the transcript exists.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: List the exact steps, inputs, or requests needed to reproduce the issue.
+      placeholder: |
+        1. Start the app with `uvicorn app.main:app --reload`
+        2. Import `watch-history.json`
+        3. Search for ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Python version, OS, and any relevant environment variables or dependency details.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Paste any relevant logs, tracebacks, or screenshots.
