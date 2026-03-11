@@ -19,7 +19,7 @@ The app is designed for personal, local analysis:
 - search by title keywords, date range, duration, and optional result limits
 - enrich missing metadata from the YouTube Data API and cache it locally
 - search transcript phrases and automatically queue missing transcript work
-- use YouTube captions first, then fall back to Groq speech-to-text with `whisper-large-v3-turbo`
+- use YouTube captions first, then fall back to Groq speech-to-text with configurable Groq Whisper models
 
 ## Architecture
 
@@ -96,12 +96,15 @@ The app loads environment variables from `.env` automatically if the file exists
 | `APP_DB_PATH` | `./data/video_finder.db` | SQLite database path |
 | `YOUTUBE_API_KEY` | unset | Enables metadata enrichment for uncached videos |
 | `GROQ_API_KEY` | unset | Enables Groq speech-to-text fallback when captions are unavailable |
+| `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Active Groq speech-to-text model (`whisper-large-v3` or `whisper-large-v3-turbo`) |
 | `LOG_LEVEL` | `INFO` | App logging level |
 | `TRANSCRIBE_LANGUAGE` | auto-detect | Optional fixed transcript language |
 | `TRANSCRIBE_WORKER_CONCURRENCY` | `1` | Concurrent transcription jobs |
 | `TRANSCRIBE_JOB_MAX_CANDIDATES` | `200` | Max candidate videos per queued job |
 | `TRANSCRIBE_WORKER_POLL_SECONDS` | `2` | Queue polling interval |
 | `TRANSCRIBE_WORKER_ENABLED` | `true` | Starts the in-process worker on app startup |
+
+`GROQ_TRANSCRIPTION_MODEL` also accepts the legacy `TRANSCRIBE_MODEL_SIZE` alias values `turbo` and `large` for backward compatibility.
 
 ## Search Capabilities
 
@@ -140,7 +143,13 @@ data/          local database path placeholder
 
 - This repository intentionally ignores personal/local artifacts such as `.env`, SQLite database files, and raw `watch-history.json` exports.
 - Without `YOUTUBE_API_KEY`, the app still works, but metadata-dependent filters may skip uncached videos.
-- When captions are unavailable, transcription falls back to Groq `whisper-large-v3-turbo` and requires `GROQ_API_KEY`.
+- When captions are unavailable, transcription falls back to the configured Groq model and requires `GROQ_API_KEY`.
+- Groq fallback is guarded by a SQLite-backed local preflight limiter so concurrent workers do not oversubscribe Groq request or audio-duration quotas.
+- Inspect current Groq limiter usage with the JSON endpoint `/jobs/groq/rate-limit`.
+- Built-in Groq limits are enforced per model:
+  - `whisper-large-v3`: `300 requests/minute`, `200000 requests/day`, `200000 audio-seconds/hour`, `4000000 audio-seconds/day`
+  - `whisper-large-v3-turbo`: `400 requests/minute`, `200000 requests/day`, `400000 audio-seconds/hour`, `4000000 audio-seconds/day`
+- The limiter refuses Groq uploads when the app cannot determine the audio duration safely, rather than guessing and risking quota overrun.
 - Groq direct file uploads currently have a 25 MB limit; oversized audio fails clearly and is not chunked automatically.
 - The background worker runs inside the FastAPI process by default; disable it with `TRANSCRIBE_WORKER_ENABLED=false` if needed.
 

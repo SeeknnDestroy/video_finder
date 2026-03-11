@@ -169,3 +169,51 @@ def test_progress_page_shows_job_counts(tmp_path, monkeypatch) -> None:
     assert "Transcription Progress" in progress_response.text
     assert "Status:</strong> queued" in progress_response.text
     assert "Open live progress page" not in progress_response.text
+
+
+def test_groq_rate_limit_status_route_returns_usage_snapshot(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "v2_groq_rate_limit_snapshot.db"
+    monkeypatch.setenv("APP_DB_PATH", str(db_path))
+    monkeypatch.setenv("TRANSCRIBE_WORKER_ENABLED", "false")
+    monkeypatch.setenv("GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo")
+
+    with TestClient(app) as client:
+        connection = sqlite3.connect(db_path)
+        now = datetime.now(timezone.utc)
+        connection.execute(
+            """
+            INSERT INTO groq_transcription_usage (
+                reservation_id,
+                model,
+                audio_seconds,
+                reserved_at,
+                completed_at,
+                outcome
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "reservation-1",
+                "whisper-large-v3-turbo",
+                120,
+                now.isoformat(),
+                now.isoformat(),
+                "succeeded",
+            ),
+        )
+        connection.commit()
+        connection.close()
+
+        response = client.get("/jobs/groq/rate-limit")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model"] == "whisper-large-v3-turbo"
+    assert payload["requests_per_minute"]["current"] == 1
+    assert payload["requests_per_minute"]["limit"] == 400
+    assert payload["requests_per_minute"]["remaining"] == 399
+    assert payload["audio_seconds_per_hour"]["current"] == 120
+    assert payload["audio_seconds_per_hour"]["limit"] == 400000
+    assert payload["audio_seconds_per_hour"]["remaining"] == 399880
+    assert payload["total_reservations"] == 1
+    assert payload["last_reserved_at"] is not None
