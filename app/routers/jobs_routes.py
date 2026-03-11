@@ -20,6 +20,7 @@ from app.services.transcription_service import (
     get_transcription_job_status,
     search_spoken_transcripts,
 )
+from app.services.groq_rate_limit_service import get_groq_rate_limit_snapshot
 
 jobs_router = APIRouter()
 
@@ -107,3 +108,13 @@ async def search_spoken(
 
     status_code = 200 if result.error_message is None else 400
     return JSONResponse(status_code=status_code, content=result.model_dump())
+
+
+@jobs_router.get("/jobs/groq/rate-limit")
+async def get_groq_rate_limit_status() -> JSONResponse:
+    config = get_app_config()
+    snapshot = await get_groq_rate_limit_snapshot(
+        db_path=config.app_db_path,
+        model=config.groq_transcription_model,
+    )
+    return JSONResponse(status_code=200, content=snapshot.model_dump())
