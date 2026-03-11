@@ -4,20 +4,29 @@ import asyncio
 import html
 import importlib
 import json
+import logging
+import math
 import mimetypes
 import shutil
 import tempfile
 from pathlib import Path
 from urllib.request import urlopen
 
+import aiosqlite
 import httpx
 from pydantic import BaseModel, Field
 
 from app.core.config import get_app_config
+from app.services.groq_rate_limit_service import (
+    GroqCapacityReservationRequest,
+    GroqReservationOutcomeRequest,
+    record_groq_reservation_outcome,
+    reserve_groq_capacity,
+)
 
 GROQ_TRANSCRIPTIONS_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
 GROQ_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 class TranscribeVideoRequest(BaseModel):
@@ -36,6 +45,12 @@ class CaptionTranscriptResult(BaseModel):
     text: str | None = None
     language: str | None = None
     error_message: str | None = None
+
+
+class GroqTranscriptionRequestError(RuntimeError):
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 async def transcribe_video(*, request: TranscribeVideoRequest) -> TranscribeVideoResult:
@@ -70,20 +85,72 @@ async def transcribe_video(*, request: TranscribeVideoRequest) -> TranscribeVide
         return TranscribeVideoResult(is_successful=False, error_message=groq_runtime_error)
 
     audio_path: str | None = None
+    groq_reservation_id: str | None = None
+    groq_request_was_successful = False
+    groq_request_status_code: int | None = None
+    groq_request_error_message: str | None = None
+    app_config = get_app_config()
     try:
         audio_path = await asyncio.to_thread(download_video_audio, video_id=request.video_id)
+        audio_duration_seconds = await resolve_audio_duration_seconds(video_id=request.video_id)
+        if audio_duration_seconds is None:
+            raise RuntimeError(
+                "Could not determine audio duration for Groq transcription. "
+                "Local rate limiting refuses unknown audio lengths."
+            )
+
+        reservation_result = await reserve_groq_capacity(
+            request=GroqCapacityReservationRequest(
+                db_path=app_config.app_db_path,
+                model=app_config.groq_transcription_model,
+                audio_seconds=audio_duration_seconds,
+            )
+        )
+        if not reservation_result.is_allowed:
+            raise RuntimeError(
+                reservation_result.error_message
+                or "Groq transcription is temporarily rate limited."
+            )
+
+        groq_reservation_id = reservation_result.reservation_id
         transcription_payload = await asyncio.to_thread(
             run_groq_transcription,
             audio_path=audio_path,
             language=request.language,
             api_key=groq_api_key,
+            model=app_config.groq_transcription_model,
+        )
+        groq_request_was_successful = True
+    except GroqTranscriptionRequestError as exc:
+        groq_request_status_code = exc.status_code
+        groq_request_error_message = str(exc)
+        return TranscribeVideoResult(
+            is_successful=False,
+            error_message=f"Transcription failed for {request.video_id}: {exc}",
         )
     except Exception as exc:
+        groq_request_error_message = str(exc)
         return TranscribeVideoResult(
             is_successful=False,
             error_message=f"Transcription failed for {request.video_id}: {exc}",
         )
     finally:
+        if groq_reservation_id:
+            try:
+                await record_groq_reservation_outcome(
+                    request=GroqReservationOutcomeRequest(
+                        db_path=app_config.app_db_path,
+                        reservation_id=groq_reservation_id,
+                        is_successful=groq_request_was_successful,
+                        response_status_code=groq_request_status_code,
+                        error_message=groq_request_error_message,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to record Groq rate-limit reservation outcome for %s",
+                    request.video_id,
+                )
         await asyncio.to_thread(delete_audio_artifacts, audio_path=audio_path)
 
     return TranscribeVideoResult(
@@ -353,6 +420,75 @@ def get_groq_api_key() -> str | None:
     return normalized_api_key
 
 
+async def resolve_audio_duration_seconds(*, video_id: str) -> int | None:
+    cached_duration_seconds = await load_cached_video_duration_seconds(video_id=video_id)
+    if cached_duration_seconds is not None:
+        return cached_duration_seconds
+
+    return await asyncio.to_thread(fetch_video_duration_seconds_with_ytdlp, video_id=video_id)
+
+
+async def load_cached_video_duration_seconds(*, video_id: str) -> int | None:
+    normalized_video_id = video_id.strip()
+    if not normalized_video_id:
+        return None
+
+    db_path = get_app_config().app_db_path.strip()
+    if not db_path:
+        return None
+
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                SELECT duration_seconds
+                FROM video_metadata
+                WHERE video_id = ?
+                """,
+                (normalized_video_id,),
+            )
+            row = await cursor.fetchone()
+    except Exception:
+        return None
+
+    if row is None:
+        return None
+
+    duration_seconds = row["duration_seconds"]
+    if not isinstance(duration_seconds, int) or duration_seconds < 1:
+        return None
+
+    return duration_seconds
+
+
+def fetch_video_duration_seconds_with_ytdlp(*, video_id: str) -> int | None:
+    try:
+        yt_dlp_module = importlib.import_module("yt_dlp")
+    except Exception:
+        return None
+
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    download_options = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+    }
+
+    try:
+        with yt_dlp_module.YoutubeDL(download_options) as downloader:
+            info = downloader.extract_info(video_url, download=False)
+    except Exception:
+        return None
+
+    duration_value = info.get("duration")
+    if not isinstance(duration_value, (int, float)) or duration_value <= 0:
+        return None
+
+    return int(math.ceil(duration_value))
+
+
 def has_module(*, module_name: str) -> bool:
     try:
         importlib.import_module(module_name)
@@ -391,6 +527,7 @@ def run_groq_transcription(
     audio_path: str,
     language: str | None,
     api_key: str,
+    model: str,
 ) -> dict[str, str | None]:
     audio_file_path = Path(audio_path)
     if not audio_file_path.exists():
@@ -406,7 +543,7 @@ def run_groq_transcription(
 
     content_type, _ = mimetypes.guess_type(audio_file_path.name)
     form_data = {
-        "model": GROQ_TRANSCRIPTION_MODEL,
+        "model": model,
         "response_format": "json",
         "temperature": "0",
     }
@@ -429,21 +566,28 @@ def run_groq_transcription(
                 timeout=httpx.Timeout(90.0, connect=10.0),
             )
     except httpx.TimeoutException as exc:
-        raise RuntimeError("Groq transcription request timed out.") from exc
+        raise GroqTranscriptionRequestError("Groq transcription request timed out.") from exc
     except httpx.HTTPError as exc:
-        raise RuntimeError(f"Groq transcription request failed: {exc}") from exc
+        raise GroqTranscriptionRequestError(
+            f"Groq transcription request failed: {exc}"
+        ) from exc
 
     if response.status_code >= 400:
-        raise RuntimeError(format_groq_api_error(response=response))
+        raise GroqTranscriptionRequestError(
+            format_groq_api_error(response=response),
+            status_code=response.status_code,
+        )
 
     try:
         payload = response.json()
     except ValueError as exc:
-        raise RuntimeError("Groq transcription returned invalid JSON.") from exc
+        raise GroqTranscriptionRequestError(
+            "Groq transcription returned invalid JSON."
+        ) from exc
 
     raw_text = payload.get("text")
     if not isinstance(raw_text, str) or not raw_text.strip():
-        raise RuntimeError("Groq transcription produced empty text.")
+        raise GroqTranscriptionRequestError("Groq transcription produced empty text.")
 
     return {
         "text": normalize_caption_text(raw_text=raw_text),

@@ -91,3 +91,17 @@ CREATE TABLE IF NOT EXISTS transcription_job_items (
 CREATE INDEX IF NOT EXISTS idx_transcription_job_items_status ON transcription_job_items(status);
 CREATE INDEX IF NOT EXISTS idx_transcription_job_items_job_id ON transcription_job_items(job_id);
 CREATE INDEX IF NOT EXISTS idx_transcription_job_items_video_id ON transcription_job_items(video_id);
+
+CREATE TABLE IF NOT EXISTS groq_transcription_usage (
+    reservation_id TEXT PRIMARY KEY,
+    model TEXT NOT NULL,
+    audio_seconds INTEGER NOT NULL,
+    reserved_at TEXT NOT NULL,
+    completed_at TEXT,
+    outcome TEXT NOT NULL DEFAULT 'reserved',
+    response_status_code INTEGER,
+    error_message TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_groq_transcription_usage_model_reserved_at
+    ON groq_transcription_usage(model, reserved_at);

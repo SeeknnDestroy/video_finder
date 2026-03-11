@@ -46,6 +46,8 @@ def test_transcription_settings_have_groq_defaults(tmp_path, monkeypatch) -> Non
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_TRANSCRIPTION_MODEL", raising=False)
+    monkeypatch.delenv("TRANSCRIBE_MODEL_SIZE", raising=False)
     monkeypatch.delenv("TRANSCRIBE_WORKER_CONCURRENCY", raising=False)
     monkeypatch.delenv("TRANSCRIBE_JOB_MAX_CANDIDATES", raising=False)
     monkeypatch.delenv("TRANSCRIBE_WORKER_POLL_SECONDS", raising=False)
@@ -55,8 +57,33 @@ def test_transcription_settings_have_groq_defaults(tmp_path, monkeypatch) -> Non
     app_config = config_module.get_app_config()
 
     assert app_config.groq_api_key is None
+    assert app_config.groq_transcription_model == "whisper-large-v3-turbo"
     assert app_config.transcribe_language is None
     assert app_config.transcribe_worker_concurrency == 1
     assert app_config.transcribe_job_max_candidates == 200
     assert app_config.transcribe_worker_poll_seconds == 2.0
     assert app_config.transcribe_worker_enabled is True
+
+
+def test_groq_transcription_model_accepts_explicit_model_name(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3")
+    monkeypatch.delenv("TRANSCRIBE_MODEL_SIZE", raising=False)
+    config_module.load_dotenv_files.cache_clear()
+
+    app_config = config_module.get_app_config()
+
+    assert app_config.groq_transcription_model == "whisper-large-v3"
+    assert app_config.groq_transcription_rate_limits().requests_per_minute == 300
+
+
+def test_groq_transcription_model_supports_legacy_size_alias(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GROQ_TRANSCRIPTION_MODEL", raising=False)
+    monkeypatch.setenv("TRANSCRIBE_MODEL_SIZE", "turbo")
+    config_module.load_dotenv_files.cache_clear()
+
+    app_config = config_module.get_app_config()
+
+    assert app_config.groq_transcription_model == "whisper-large-v3-turbo"
+    assert app_config.groq_transcription_rate_limits().audio_seconds_per_hour == 400_000
