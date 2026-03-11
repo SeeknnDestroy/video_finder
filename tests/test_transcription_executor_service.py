@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from app.services.groq_rate_limit_service import GroqCapacityReservationResult
 from app.services.transcription_executor_service import (
     GROQ_MAX_UPLOAD_BYTES,
     CaptionTranscriptResult,
@@ -78,6 +79,7 @@ async def test_transcribe_video_reports_missing_groq_key_after_caption_miss(monk
 @pytest.mark.asyncio
 async def test_transcribe_video_runs_groq_fallback_after_caption_miss(monkeypatch) -> None:
     deleted_audio_paths: list[str | None] = []
+    recorded_outcomes: list[tuple[bool, int | None, str | None]] = []
 
     monkeypatch.setattr(
         "app.services.transcription_executor_service.get_yt_dlp_runtime_error_message",
@@ -99,16 +101,47 @@ async def test_transcribe_video_runs_groq_fallback_after_caption_miss(monkeypatc
         "app.services.transcription_executor_service.download_video_audio",
         lambda video_id: "/tmp/video-one.webm",
     )
+    async def fake_resolve_audio_duration_seconds(*, video_id: str) -> int | None:
+        return 25
 
-    def fake_run_groq_transcription(*, audio_path: str, language: str | None, api_key: str):
+    async def fake_reserve_groq_capacity(*, request):
+        assert request.audio_seconds == 25
+        assert request.model == "whisper-large-v3-turbo"
+        return GroqCapacityReservationResult(is_allowed=True, reservation_id="reservation-1")
+
+    async def fake_record_outcome(*, request) -> None:
+        recorded_outcomes.append(
+            (request.is_successful, request.response_status_code, request.error_message)
+        )
+
+    def fake_run_groq_transcription(
+        *,
+        audio_path: str,
+        language: str | None,
+        api_key: str,
+        model: str,
+    ):
         assert audio_path == "/tmp/video-one.webm"
         assert language == "tr"
         assert api_key == "groq-secret"
+        assert model == "whisper-large-v3-turbo"
         return {"text": "merhaba dunya", "language": "tr"}
 
     monkeypatch.setattr(
+        "app.services.transcription_executor_service.resolve_audio_duration_seconds",
+        fake_resolve_audio_duration_seconds,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.reserve_groq_capacity",
+        fake_reserve_groq_capacity,
+    )
+    monkeypatch.setattr(
         "app.services.transcription_executor_service.run_groq_transcription",
         fake_run_groq_transcription,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.record_groq_reservation_outcome",
+        fake_record_outcome,
     )
     monkeypatch.setattr(
         "app.services.transcription_executor_service.delete_audio_artifacts",
@@ -123,6 +156,7 @@ async def test_transcribe_video_runs_groq_fallback_after_caption_miss(monkeypatc
     assert result.text == "merhaba dunya"
     assert result.language == "tr"
     assert deleted_audio_paths == ["/tmp/video-one.webm"]
+    assert recorded_outcomes == [(True, None, None)]
 
 
 def test_run_groq_transcription_passes_language_hint_and_form_fields(
@@ -154,6 +188,7 @@ def test_run_groq_transcription_passes_language_hint_and_form_fields(
         audio_path=str(audio_path),
         language="tr",
         api_key="groq-secret",
+        model="whisper-large-v3-turbo",
     )
 
     assert result == {"text": "merhaba dunya", "language": "tr"}
@@ -177,6 +212,7 @@ def test_run_groq_transcription_rejects_oversized_audio_before_api_call(
             audio_path=str(audio_path),
             language=None,
             api_key="groq-secret",
+            model="whisper-large-v3-turbo",
         )
 
     assert "25 MB direct upload limit" in str(exc_info.value)
@@ -196,6 +232,7 @@ def test_run_groq_transcription_surfaces_api_errors(tmp_path: Path, monkeypatch)
             audio_path=str(audio_path),
             language=None,
             api_key="groq-secret",
+            model="whisper-large-v3-turbo",
         )
 
     assert "status 429" in str(exc_info.value)
@@ -216,6 +253,116 @@ def test_run_groq_transcription_rejects_empty_text(tmp_path: Path, monkeypatch) 
             audio_path=str(audio_path),
             language=None,
             api_key="groq-secret",
+            model="whisper-large-v3-turbo",
         )
 
     assert "empty text" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_transcribe_video_rejects_unknown_audio_duration_before_groq_call(monkeypatch) -> None:
+    deleted_audio_paths: list[str | None] = []
+
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.get_yt_dlp_runtime_error_message",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.fetch_caption_transcript",
+        lambda video_id, preferred_language: CaptionTranscriptResult(
+            text=None,
+            language=None,
+            error_message="No YouTube captions were available for this video.",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.get_groq_api_key",
+        lambda: "groq-secret",
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.download_video_audio",
+        lambda video_id: "/tmp/video-unknown.webm",
+    )
+    async def fake_resolve_audio_duration_seconds(*, video_id: str) -> int | None:
+        return None
+
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.resolve_audio_duration_seconds",
+        fake_resolve_audio_duration_seconds,
+    )
+
+    async def fail_if_reserved(*, request):
+        raise AssertionError("Rate limiter should not reserve unknown audio durations.")
+
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.reserve_groq_capacity",
+        fail_if_reserved,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.delete_audio_artifacts",
+        lambda *, audio_path: deleted_audio_paths.append(audio_path),
+    )
+
+    result = await transcribe_video(
+        request=TranscribeVideoRequest(video_id="video-unknown")
+    )
+
+    assert result.is_successful is False
+    assert result.error_message is not None
+    assert "unknown audio lengths" in result.error_message
+    assert deleted_audio_paths == ["/tmp/video-unknown.webm"]
+
+
+@pytest.mark.asyncio
+async def test_transcribe_video_reports_local_rate_limit_preflight(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.get_yt_dlp_runtime_error_message",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.fetch_caption_transcript",
+        lambda video_id, preferred_language: CaptionTranscriptResult(
+            text=None,
+            language=None,
+            error_message="No YouTube captions were available for this video.",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.get_groq_api_key",
+        lambda: "groq-secret",
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.download_video_audio",
+        lambda video_id: "/tmp/video-rate-limited.webm",
+    )
+    async def fake_resolve_audio_duration_seconds(*, video_id: str) -> int | None:
+        return 25
+
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.resolve_audio_duration_seconds",
+        fake_resolve_audio_duration_seconds,
+    )
+
+    async def fake_reserve_groq_capacity(*, request):
+        return GroqCapacityReservationResult(
+            is_allowed=False,
+            retry_after_seconds=60,
+            error_message="Groq rate limit preflight blocked model whisper-large-v3-turbo.",
+        )
+
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.reserve_groq_capacity",
+        fake_reserve_groq_capacity,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.delete_audio_artifacts",
+        lambda *, audio_path: None,
+    )
+
+    result = await transcribe_video(
+        request=TranscribeVideoRequest(video_id="video-rate-limited")
+    )
+
+    assert result.is_successful is False
+    assert result.error_message is not None
+    assert "preflight blocked" in result.error_message
