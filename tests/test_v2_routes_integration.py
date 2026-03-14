@@ -107,6 +107,81 @@ def test_v2_spoken_json_route_returns_matches_and_auto_queue(tmp_path, monkeypat
     assert job_payload["queued_count"] == 1
 
 
+def test_v2_spoken_json_route_filters_by_channel_query(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "v2_spoken_channel_query.db"
+    monkeypatch.setenv("APP_DB_PATH", str(db_path))
+    monkeypatch.setenv("TRANSCRIBE_WORKER_ENABLED", "false")
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+
+    with TestClient(app) as client:
+        connection = sqlite3.connect(db_path)
+        now = datetime.now(timezone.utc)
+        insert_watched_event(connection=connection, video_id="spoken-channel-hit", watched_at=now, title="Hit")
+        insert_watched_event(
+            connection=connection,
+            video_id="spoken-channel-miss",
+            watched_at=now - timedelta(minutes=1),
+            title="Miss",
+        )
+        connection.execute(
+            """
+            INSERT INTO video_metadata (video_id, title, channel_title, duration_seconds, thumbnail_url, is_available, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "spoken-channel-hit",
+                "Hit",
+                "Cook Lab Studio",
+                120,
+                "https://example.com/hit.jpg",
+                1,
+                now.isoformat(),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO transcripts (video_id, language, text, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "spoken-channel-hit",
+                "en",
+                "hello from the transcript",
+                now.isoformat(),
+                now.isoformat(),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO transcripts (video_id, language, text, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "spoken-channel-miss",
+                "en",
+                "hello from a different channel",
+                now.isoformat(),
+                now.isoformat(),
+            ),
+        )
+        connection.commit()
+        connection.close()
+
+        response = client.get(
+            "/search/spoken",
+            params={"phrase": "hello", "channel_query": "cook studio", "limit": 20},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["error_message"] is None
+        assert len(payload["items"]) == 1
+        assert payload["items"][0]["video_id"] == "spoken-channel-hit"
+        assert payload["candidate_count"] == 1
+        assert payload["transcript_available_count"] == 1
+        assert payload["needs_transcription_count"] == 0
+
+
 def test_search_page_handles_transcript_phrase_in_single_form(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "v2_single_form.db"
     monkeypatch.setenv("APP_DB_PATH", str(db_path))

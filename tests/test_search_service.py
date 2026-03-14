@@ -67,6 +67,76 @@ async def test_search_title_tokens_require_all_terms(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_search_channel_tokens_require_all_terms(tmp_path) -> None:
+    db_path = tmp_path / "search_channel_tokens.db"
+    initialize_result = await initialize_database(
+        request=InitializeDatabaseRequest(db_path=str(db_path))
+    )
+    assert initialize_result.is_successful
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    async with get_database_connection(
+        request=DatabaseConnectionRequest(db_path=str(db_path))
+    ) as db:
+        await db.execute(
+            """
+            INSERT INTO watched_events (video_id, watched_at, source_title, source_channel, source_url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "metadata-channel-hit",
+                now,
+                "Dinner Prep",
+                "Fallback Source Channel",
+                "https://www.youtube.com/watch?v=metadata-channel-hit",
+                now,
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO watched_events (video_id, watched_at, source_title, source_channel, source_url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "metadata-channel-miss",
+                now,
+                "Gym Routine",
+                "Daily Motion",
+                "https://www.youtube.com/watch?v=metadata-channel-miss",
+                now,
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO video_metadata (video_id, title, channel_title, duration_seconds, thumbnail_url, is_available, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "metadata-channel-hit",
+                "Dinner Prep",
+                "Cook Lab Studio",
+                420,
+                "https://example.com/hit.jpg",
+                1,
+                now,
+            ),
+        )
+        await db.commit()
+
+        search_result = await search_videos(
+            request=SearchVideosServiceRequest(
+                db=db,
+                search=SearchVideosRequest(channel_query="cook studio", date_preset="6m"),
+                api_key=None,
+            )
+        )
+
+    assert len(search_result.items) == 1
+    assert search_result.items[0].video_id == "metadata-channel-hit"
+
+
+@pytest.mark.asyncio
 async def test_duration_filter_skips_missing_metadata(tmp_path) -> None:
     db_path = tmp_path / "search_duration.db"
     initialize_result = await initialize_database(

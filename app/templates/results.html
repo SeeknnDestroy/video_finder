@@ -37,6 +37,9 @@
         {% if search_request.title_query %}
           <span class="chip">Title: {{ search_request.title_query }}</span>
         {% endif %}
+        {% if search_request.channel_query %}
+          <span class="chip">Channel: {{ search_request.channel_query }}</span>
+        {% endif %}
         {% if search_request.date_preset %}
           <span class="chip">Preset: {{ search_request.date_preset }}</span>
         {% endif %}
@@ -58,7 +61,7 @@
         {% if request.query_params.get('language') %}
           <span class="chip">Language: {{ request.query_params.get('language') }}</span>
         {% endif %}
-        {% if not search_request.phrase and not search_request.title_query and not search_request.date_preset and not search_request.watched_from and not search_request.watched_to and search_request.duration_min_seconds is none and search_request.duration_max_seconds is none and not search_request.limit and not request.query_params.get('language') %}
+        {% if not search_request.phrase and not search_request.title_query and not search_request.channel_query and not search_request.date_preset and not search_request.watched_from and not search_request.watched_to and search_request.duration_min_seconds is none and search_request.duration_max_seconds is none and not search_request.limit and not request.query_params.get('language') %}
           <span class="chip chip--muted">No filters applied</span>
         {% endif %}
       </div>

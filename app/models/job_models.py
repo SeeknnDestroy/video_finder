@@ -15,6 +15,7 @@ DATE_PRESET_VALUES = {"7d", "30d", "6m", "1y", "custom"}
 class CreateTranscriptionJobRequest(BaseModel):
     phrase: str | None = None
     title_query: str | None = None
+    channel_query: str | None = None
     duration_min_seconds: int | None = Field(default=None, ge=0, le=43200)
     duration_max_seconds: int | None = Field(default=None, ge=1, le=43200)
     watched_from: date | None = None
@@ -26,6 +27,7 @@ class CreateTranscriptionJobRequest(BaseModel):
     @field_validator(
         "phrase",
         "title_query",
+        "channel_query",
         "duration_min_seconds",
         "duration_max_seconds",
         "watched_from",
@@ -76,6 +78,7 @@ class CreateTranscriptionJobResult(BaseModel):
 class SpokenSearchRequest(BaseModel):
     phrase: str = Field(min_length=1)
     title_query: str | None = None
+    channel_query: str | None = None
     duration_min_seconds: int | None = Field(default=None, ge=0, le=43200)
     duration_max_seconds: int | None = Field(default=None, ge=1, le=43200)
     watched_from: date | None = None
@@ -87,6 +90,7 @@ class SpokenSearchRequest(BaseModel):
     @field_validator(
         "phrase",
         "title_query",
+        "channel_query",
         "duration_min_seconds",
         "duration_max_seconds",
         "watched_from",

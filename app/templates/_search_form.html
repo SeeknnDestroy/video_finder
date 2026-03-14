@@ -52,6 +52,15 @@
         placeholder="e.g. quick recipe"
       />
 
+      <label for="channel_query">Channel keywords (optional)</label>
+      <input
+        id="channel_query"
+        name="channel_query"
+        type="text"
+        value="{{ search_request.channel_query or '' }}"
+        placeholder="e.g. cook lab"
+      />
+
       <div class="grid-two">
         <div>
           <label for="duration_min_seconds">Min duration (seconds)</label>

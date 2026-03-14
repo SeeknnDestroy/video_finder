@@ -68,6 +68,7 @@ async def search_spoken(
     *,
     phrase: str = Query(...),
     title_query: str | None = Query(default=None),
+    channel_query: str | None = Query(default=None),
     duration_min_seconds: int | None = Query(default=None),
     duration_max_seconds: int | None = Query(default=None),
     watched_from: date | None = Query(default=None),
@@ -80,6 +81,7 @@ async def search_spoken(
         request_payload = SpokenSearchRequest(
             phrase=phrase,
             title_query=title_query,
+            channel_query=channel_query,
             duration_min_seconds=duration_min_seconds,
             duration_max_seconds=duration_max_seconds,
             watched_from=watched_from,

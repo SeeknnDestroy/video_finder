@@ -205,3 +205,66 @@ def test_search_endpoint_accepts_blank_optional_query_values(tmp_path, monkeypat
 
     assert response.status_code == 200
     assert "Blank Query Test Video" in response.text
+
+
+def test_search_endpoint_filters_by_channel_query(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "integration_channel_query.db"
+    monkeypatch.setenv("APP_DB_PATH", str(db_path))
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+    monkeypatch.setenv("TRANSCRIBE_WORKER_ENABLED", "false")
+
+    with TestClient(app) as client:
+        now = datetime.now(timezone.utc).isoformat()
+        connection = sqlite3.connect(db_path)
+        connection.execute(
+            """
+            INSERT INTO watched_events (video_id, watched_at, source_title, source_channel, source_url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "channel-hit",
+                now,
+                "Channel Query Test Video",
+                "Fallback Source",
+                "https://www.youtube.com/watch?v=channel-hit",
+                now,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO watched_events (video_id, watched_at, source_title, source_channel, source_url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "channel-miss",
+                now,
+                "Another Test Video",
+                "Workout Hub",
+                "https://www.youtube.com/watch?v=channel-miss",
+                now,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO video_metadata (video_id, title, channel_title, duration_seconds, thumbnail_url, is_available, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "channel-hit",
+                "Channel Query Test Video",
+                "Cook Lab Studio",
+                45,
+                "https://example.com/channel-hit.jpg",
+                1,
+                now,
+            ),
+        )
+        connection.commit()
+        connection.close()
+
+        response = client.get("/search", params={"channel_query": "cook studio"})
+
+    assert response.status_code == 200
+    assert "Channel Query Test Video" in response.text
+    assert "Another Test Video" not in response.text
+    assert "Channel: cook studio" in response.text

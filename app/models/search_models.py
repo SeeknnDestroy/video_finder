@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 class SearchVideosRequest(BaseModel):
     phrase: str | None = None
     title_query: str | None = None
+    channel_query: str | None = None
     duration_min_seconds: int | None = Field(default=None, ge=0, le=43200)
     duration_max_seconds: int | None = Field(default=None, ge=1, le=43200)
     watched_from: date | None = None
@@ -25,6 +26,7 @@ class SearchVideosRequest(BaseModel):
         "date_preset",
         "limit",
         "phrase",
+        "channel_query",
         mode="before",
     )
     @classmethod
@@ -48,9 +50,9 @@ class SearchVideosRequest(BaseModel):
 
         return self
 
-    @field_validator("title_query")
+    @field_validator("title_query", "channel_query")
     @classmethod
-    def normalize_title_query(cls, value: str | None) -> str | None:
+    def normalize_keyword_query(cls, value: str | None) -> str | None:
         if value is None:
             return None
 

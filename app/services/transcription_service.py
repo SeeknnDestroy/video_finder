@@ -26,8 +26,8 @@ from app.services.search_service import (
     resolve_channel,
     resolve_date_range,
     resolve_title,
-    title_matches,
-    tokenize_title_query,
+    text_matches,
+    tokenize_keyword_query,
 )
 
 JOB_STATUS_QUEUED = "queued"
@@ -121,6 +121,7 @@ async def search_spoken_transcripts(*, request: SpokenSearchServiceRequest) -> S
 
     search_request = SearchVideosRequest(
         title_query=request.payload.title_query,
+        channel_query=request.payload.channel_query,
         duration_min_seconds=request.payload.duration_min_seconds,
         duration_max_seconds=request.payload.duration_max_seconds,
         watched_from=request.payload.watched_from,
@@ -210,6 +211,7 @@ async def search_spoken_transcripts(*, request: SpokenSearchServiceRequest) -> S
                     "source": "spoken_search_auto_queue",
                     "phrase": request.payload.phrase,
                     "title_query": request.payload.title_query,
+                    "channel_query": request.payload.channel_query,
                     "duration_min_seconds": request.payload.duration_min_seconds,
                     "duration_max_seconds": request.payload.duration_max_seconds,
                     "watched_from": request.payload.watched_from.isoformat() if request.payload.watched_from else None,
@@ -315,6 +317,7 @@ async def get_transcription_job_status(
 def build_search_request_from_job_payload(*, payload: CreateTranscriptionJobRequest) -> SearchVideosRequest:
     return SearchVideosRequest(
         title_query=payload.title_query,
+        channel_query=payload.channel_query,
         duration_min_seconds=payload.duration_min_seconds,
         duration_max_seconds=payload.duration_max_seconds,
         watched_from=payload.watched_from,
@@ -347,7 +350,8 @@ async def select_candidate_videos(*, request: CandidateSelectionRequest) -> Cand
     )
     metadata_by_video_id = metadata_result.metadata_by_video_id
 
-    title_tokens = tokenize_title_query(title_query=request.search.title_query)
+    title_tokens = tokenize_keyword_query(text=request.search.title_query)
+    channel_tokens = tokenize_keyword_query(text=request.search.channel_query)
     has_duration_filter = (
         request.search.duration_min_seconds is not None
         or request.search.duration_max_seconds is not None
@@ -369,7 +373,11 @@ async def select_candidate_videos(*, request: CandidateSelectionRequest) -> Cand
         metadata = metadata_by_video_id.get(video_id)
 
         resolved_title = resolve_title(raw_row=row, metadata=metadata)
-        if title_tokens and not title_matches(title=resolved_title, tokens=title_tokens):
+        if title_tokens and not text_matches(text=resolved_title, tokens=title_tokens):
+            continue
+
+        resolved_channel = resolve_channel(raw_row=row, metadata=metadata)
+        if channel_tokens and not text_matches(text=resolved_channel or "", tokens=channel_tokens):
             continue
 
         resolved_duration = metadata.duration_seconds if metadata else None
@@ -399,7 +407,7 @@ async def select_candidate_videos(*, request: CandidateSelectionRequest) -> Cand
                 video_id=video_id,
                 watched_at=watched_at,
                 title=resolved_title,
-                channel_title=resolve_channel(raw_row=row, metadata=metadata),
+                channel_title=resolved_channel,
                 duration_seconds=resolved_duration,
                 thumbnail_url=metadata.thumbnail_url if metadata else None,
             )

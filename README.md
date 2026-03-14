@@ -16,7 +16,7 @@ YouTube Video Finder imports a Google Takeout `watch-history.json` export into a
 The app is designed for personal, local analysis:
 
 - import and deduplicate watched events by `(video_id, watched_at)`
-- search by title keywords, date range, duration, and optional result limits
+- search by title keywords, channel keywords, date range, duration, and optional result limits
 - enrich missing metadata from the YouTube Data API and cache it locally
 - search transcript phrases and automatically queue missing transcript work
 - use YouTube captions first, then fall back to Groq speech-to-text with configurable Groq Whisper models
@@ -116,6 +116,7 @@ For private, members-only, or age-restricted videos, the default happy path is s
 ### Metadata-backed search
 
 - title keyword matching with all-term semantics
+- channel keyword matching with all-term semantics
 - duration minimum and maximum filters
 - date presets: `7d`, `30d`, `6m`, `1y`
 - custom date ranges

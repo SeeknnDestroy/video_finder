@@ -54,7 +54,8 @@ async def search_videos(*, request: SearchVideosServiceRequest) -> SearchVideosR
         request.search.duration_min_seconds is not None
         or request.search.duration_max_seconds is not None
     )
-    title_tokens = tokenize_title_query(title_query=request.search.title_query)
+    title_tokens = tokenize_keyword_query(text=request.search.title_query)
+    channel_tokens = tokenize_keyword_query(text=request.search.channel_query)
 
     warnings: list[str] = []
     if metadata_cache_result.warning_message:
@@ -68,7 +69,11 @@ async def search_videos(*, request: SearchVideosServiceRequest) -> SearchVideosR
         metadata = metadata_by_video_id.get(video_id)
 
         resolved_title = resolve_title(raw_row=row, metadata=metadata)
-        if title_tokens and not title_matches(title=resolved_title, tokens=title_tokens):
+        if title_tokens and not text_matches(text=resolved_title, tokens=title_tokens):
+            continue
+
+        resolved_channel = resolve_channel(raw_row=row, metadata=metadata)
+        if channel_tokens and not text_matches(text=resolved_channel or "", tokens=channel_tokens):
             continue
 
         resolved_duration = metadata.duration_seconds if metadata else None
@@ -98,7 +103,7 @@ async def search_videos(*, request: SearchVideosServiceRequest) -> SearchVideosR
                 video_id=video_id,
                 video_url=f"https://www.youtube.com/watch?v={video_id}",
                 title=resolved_title,
-                channel_title=resolve_channel(raw_row=row, metadata=metadata),
+                channel_title=resolved_channel,
                 watched_at=watched_at,
                 duration_seconds=resolved_duration,
                 thumbnail_url=metadata.thumbnail_url if metadata else None,
@@ -230,17 +235,17 @@ def convert_date_to_datetime_exclusive_end(*, raw_date: date | None) -> datetime
     return datetime.combine(next_day, time.min, tzinfo=timezone.utc)
 
 
-def tokenize_title_query(*, title_query: str | None) -> list[str]:
-    if not title_query:
+def tokenize_keyword_query(*, text: str | None) -> list[str]:
+    if not text:
         return []
 
-    tokens = [token.strip().lower() for token in title_query.split() if token.strip()]
+    tokens = [token.strip().lower() for token in text.split() if token.strip()]
     return tokens
 
 
-def title_matches(*, title: str, tokens: list[str]) -> bool:
-    normalized_title = title.lower()
-    return all(token in normalized_title for token in tokens)
+def text_matches(*, text: str, tokens: list[str]) -> bool:
+    normalized_text = text.lower()
+    return all(token in normalized_text for token in tokens)
 
 
 def resolve_title(*, raw_row, metadata) -> str:

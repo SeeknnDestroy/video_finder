@@ -33,6 +33,7 @@ async def search(
     request: Request,
     phrase: str | None = Query(default=None),
     title_query: str | None = Query(default=None),
+    channel_query: str | None = Query(default=None),
     duration_min_seconds: str | None = Query(default=None),
     duration_max_seconds: str | None = Query(default=None),
     watched_from: str | None = Query(default=None),
@@ -45,6 +46,7 @@ async def search(
         search_request = SearchVideosRequest(
             phrase=phrase,
             title_query=title_query,
+            channel_query=channel_query,
             duration_min_seconds=duration_min_seconds,
             duration_max_seconds=duration_max_seconds,
             watched_from=watched_from,
@@ -71,6 +73,7 @@ async def search(
                 spoken_request = SpokenSearchRequest(
                     phrase=search_request.phrase,
                     title_query=search_request.title_query,
+                    channel_query=search_request.channel_query,
                     duration_min_seconds=search_request.duration_min_seconds,
                     duration_max_seconds=search_request.duration_max_seconds,
                     watched_from=search_request.watched_from,
