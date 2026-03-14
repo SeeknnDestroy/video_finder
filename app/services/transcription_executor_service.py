@@ -30,7 +30,7 @@ GROQ_TRANSCRIPTIONS_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 logger = logging.getLogger(__name__)
 YT_DLP_AUTO_BROWSER_COOKIE_SOURCES_BY_PLATFORM = {
-    "darwin": ("safari", "chrome", "firefox", "edge", "brave", "chromium"),
+    "darwin": ("chrome", "firefox", "edge", "brave", "chromium", "safari"),
     "windows": ("edge", "chrome", "firefox", "brave", "chromium"),
     "linux": ("chrome", "chromium", "firefox", "edge", "brave"),
 }
@@ -636,6 +636,7 @@ def build_yt_dlp_options(**base_options: object) -> dict[str, object]:
     return apply_yt_dlp_auth_options(
         base_options=base_options,
         cookies_from_browser=app_config.yt_dlp_cookies_from_browser,
+        cookies_profile=app_config.yt_dlp_cookies_profile,
         cookies_file=app_config.yt_dlp_cookies_file,
     )
 
@@ -644,12 +645,16 @@ def apply_yt_dlp_auth_options(
     *,
     base_options: dict[str, object],
     cookies_from_browser: str | None,
+    cookies_profile: str | None,
     cookies_file: str | None,
 ) -> dict[str, object]:
     options = dict(base_options)
 
     if cookies_from_browser:
-        options["cookiesfrombrowser"] = (cookies_from_browser,)
+        if cookies_profile:
+            options["cookiesfrombrowser"] = (cookies_from_browser, cookies_profile, None, None)
+        else:
+            options["cookiesfrombrowser"] = (cookies_from_browser,)
     elif cookies_file:
         options["cookiefile"] = cookies_file
 
@@ -684,6 +689,7 @@ def run_yt_dlp_operation_with_auth_retry(
                 options=apply_yt_dlp_auth_options(
                     base_options=base_options,
                     cookies_from_browser=browser_name,
+                    cookies_profile=None,
                     cookies_file=None,
                 ),
                 operation=operation,
@@ -792,7 +798,7 @@ def format_youtube_access_error(*, error_message: str) -> str:
         f"{error_message} The simplest path is to sign into YouTube in {auto_browser_list} "
         "on this machine and retry; the app will automatically retry browser cookies for "
         "sign-in-required videos. If you use a different browser or profile, configure "
-        "YT_DLP_COOKIES_FROM_BROWSER or YT_DLP_COOKIES_FILE."
+        "YT_DLP_COOKIES_FROM_BROWSER, YT_DLP_COOKIES_PROFILE, or YT_DLP_COOKIES_FILE."
     )
 
 

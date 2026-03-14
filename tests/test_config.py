@@ -49,6 +49,7 @@ def test_transcription_settings_have_groq_defaults(tmp_path, monkeypatch) -> Non
     monkeypatch.delenv("GROQ_TRANSCRIPTION_MODEL", raising=False)
     monkeypatch.delenv("TRANSCRIBE_MODEL_SIZE", raising=False)
     monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
+    monkeypatch.delenv("YT_DLP_COOKIES_PROFILE", raising=False)
     monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
     monkeypatch.delenv("TRANSCRIBE_LANGUAGE", raising=False)
     monkeypatch.delenv("TRANSCRIBE_WORKER_CONCURRENCY", raising=False)
@@ -97,10 +98,12 @@ def test_groq_transcription_model_supports_legacy_size_alias(tmp_path, monkeypat
 def test_yt_dlp_cookie_settings_are_loaded_from_env(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "chrome")
+    monkeypatch.setenv("YT_DLP_COOKIES_PROFILE", "Profile 1")
     monkeypatch.setenv("YT_DLP_COOKIES_FILE", "/tmp/cookies.txt")
     config_module.load_dotenv_files.cache_clear()
 
     app_config = config_module.get_app_config()
 
     assert app_config.yt_dlp_cookies_from_browser == "chrome"
+    assert app_config.yt_dlp_cookies_profile == "Profile 1"
     assert app_config.yt_dlp_cookies_file == "/tmp/cookies.txt"

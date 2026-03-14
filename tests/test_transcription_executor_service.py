@@ -89,8 +89,9 @@ async def test_transcribe_video_adds_cookie_hint_when_private_video_blocks_capti
     monkeypatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
-    monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
+    monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "")
+    monkeypatch.setenv("YT_DLP_COOKIES_PROFILE", "")
+    monkeypatch.setenv("YT_DLP_COOKIES_FILE", "")
     config_module.load_dotenv_files.cache_clear()
     monkeypatch.setattr(
         "app.services.transcription_executor_service.get_yt_dlp_runtime_error_message",
@@ -418,6 +419,7 @@ async def test_transcribe_video_reports_local_rate_limit_preflight(monkeypatch) 
 def test_build_yt_dlp_options_uses_browser_cookies_when_configured(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "chrome")
+    monkeypatch.setenv("YT_DLP_COOKIES_PROFILE", "Profile 1")
     monkeypatch.setenv("YT_DLP_COOKIES_FILE", "/tmp/cookies.txt")
     config_module.load_dotenv_files.cache_clear()
 
@@ -425,7 +427,7 @@ def test_build_yt_dlp_options_uses_browser_cookies_when_configured(tmp_path: Pat
 
     assert options["quiet"] is True
     assert options["noplaylist"] is True
-    assert options["cookiesfrombrowser"] == ("chrome",)
+    assert options["cookiesfrombrowser"] == ("chrome", "Profile 1", None, None)
     assert "cookiefile" not in options
 
 
@@ -434,7 +436,8 @@ def test_build_yt_dlp_options_uses_cookie_file_when_browser_not_configured(
     monkeypatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
+    monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "")
+    monkeypatch.setenv("YT_DLP_COOKIES_PROFILE", "")
     monkeypatch.setenv("YT_DLP_COOKIES_FILE", "/tmp/cookies.txt")
     config_module.load_dotenv_files.cache_clear()
 
@@ -448,8 +451,9 @@ def test_fetch_caption_transcript_retries_logged_in_browser_cookies_for_private_
     monkeypatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
-    monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
+    monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "")
+    monkeypatch.setenv("YT_DLP_COOKIES_PROFILE", "")
+    monkeypatch.setenv("YT_DLP_COOKIES_FILE", "")
     config_module.load_dotenv_files.cache_clear()
 
     attempts: list[dict[str, object]] = []
@@ -512,7 +516,7 @@ def test_fetch_caption_transcript_retries_logged_in_browser_cookies_for_private_
     assert result.language == "en"
     assert len(attempts) == 2
     assert "cookiesfrombrowser" not in attempts[0]
-    assert attempts[1]["cookiesfrombrowser"] == ("safari",)
+    assert attempts[1]["cookiesfrombrowser"] == ("chrome",)
 
 
 def test_download_video_audio_retries_logged_in_browser_cookies_for_private_video(
@@ -520,8 +524,9 @@ def test_download_video_audio_retries_logged_in_browser_cookies_for_private_vide
     monkeypatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
-    monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
+    monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "")
+    monkeypatch.setenv("YT_DLP_COOKIES_PROFILE", "")
+    monkeypatch.setenv("YT_DLP_COOKIES_FILE", "")
     config_module.load_dotenv_files.cache_clear()
 
     attempts: list[dict[str, object]] = []
@@ -571,7 +576,7 @@ def test_download_video_audio_retries_logged_in_browser_cookies_for_private_vide
     assert Path(audio_path).exists()
     assert len(attempts) == 2
     assert "cookiesfrombrowser" not in attempts[0]
-    assert attempts[1]["cookiesfrombrowser"] == ("safari",)
+    assert attempts[1]["cookiesfrombrowser"] == ("chrome",)
 
     delete_audio_artifacts(audio_path=audio_path)
 
@@ -607,8 +612,9 @@ def test_format_youtube_access_error_adds_cookie_hint_for_private_video(
     monkeypatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
-    monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
+    monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "")
+    monkeypatch.setenv("YT_DLP_COOKIES_PROFILE", "")
+    monkeypatch.setenv("YT_DLP_COOKIES_FILE", "")
     config_module.load_dotenv_files.cache_clear()
 
     message = format_youtube_access_error(

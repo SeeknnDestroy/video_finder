@@ -40,6 +40,7 @@ class AppConfig(BaseModel):
     groq_api_key: str | None = None
     groq_transcription_model: str = Field(default=GROQ_MODEL_WHISPER_LARGE_V3_TURBO)
     yt_dlp_cookies_from_browser: str | None = None
+    yt_dlp_cookies_profile: str | None = None
     yt_dlp_cookies_file: str | None = None
     log_level: str = Field(default="INFO")
     transcribe_language: str | None = None
@@ -77,6 +78,9 @@ def get_app_config() -> AppConfig:
         ),
         yt_dlp_cookies_from_browser=normalize_optional_string_env(
             raw_value=os.getenv("YT_DLP_COOKIES_FROM_BROWSER")
+        ),
+        yt_dlp_cookies_profile=normalize_optional_string_env(
+            raw_value=os.getenv("YT_DLP_COOKIES_PROFILE")
         ),
         yt_dlp_cookies_file=normalize_optional_string_env(
             raw_value=os.getenv("YT_DLP_COOKIES_FILE")

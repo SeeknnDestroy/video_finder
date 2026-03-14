@@ -98,6 +98,7 @@ The app loads environment variables from `.env` automatically if the file exists
 | `GROQ_API_KEY` | unset | Enables Groq speech-to-text fallback when captions are unavailable |
 | `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Active Groq speech-to-text model (`whisper-large-v3` or `whisper-large-v3-turbo`) |
 | `YT_DLP_COOKIES_FROM_BROWSER` | unset | Optional advanced override to pin authenticated `yt-dlp` cookie import to one browser, for example `chrome` or `firefox` |
+| `YT_DLP_COOKIES_PROFILE` | unset | Optional browser profile name/path when `YT_DLP_COOKIES_FROM_BROWSER` should use a non-default profile, for example `Profile 1` |
 | `YT_DLP_COOKIES_FILE` | unset | Optional advanced override for a Netscape-format cookies file path |
 | `LOG_LEVEL` | `INFO` | App logging level |
 | `TRANSCRIBE_LANGUAGE` | auto-detect | Optional fixed transcript language |
@@ -108,7 +109,7 @@ The app loads environment variables from `.env` automatically if the file exists
 
 `GROQ_TRANSCRIPTION_MODEL` also accepts the legacy `TRANSCRIBE_MODEL_SIZE` alias values `turbo` and `large` for backward compatibility.
 
-For private, members-only, or age-restricted videos, the default happy path is simple: log into YouTube in a supported local browser and retry. The app first tries public access, then automatically retries common browser-cookie sources on sign-in-required failures. Use `YT_DLP_COOKIES_FROM_BROWSER` or `YT_DLP_COOKIES_FILE` only if you need to pin a specific browser/profile or use an exported cookie file.
+For private, members-only, or age-restricted videos, the default happy path is simple: log into YouTube in a supported local browser and retry. The app first tries public access, then automatically retries common browser-cookie sources on sign-in-required failures. On macOS it prefers Chrome before Safari to avoid Safari cookie permission problems. Use `YT_DLP_COOKIES_FROM_BROWSER`, `YT_DLP_COOKIES_PROFILE`, or `YT_DLP_COOKIES_FILE` only if you need to pin a specific browser/profile or use an exported cookie file.
 
 ## Search Capabilities
 
