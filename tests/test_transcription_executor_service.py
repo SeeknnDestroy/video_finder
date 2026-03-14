@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import httpx
 import pytest
 
+from app.core import config as config_module
 from app.services.groq_rate_limit_service import GroqCapacityReservationResult
 from app.services.transcription_executor_service import (
     GROQ_MAX_UPLOAD_BYTES,
     CaptionTranscriptResult,
     TranscribeVideoRequest,
+    build_yt_dlp_options,
+    delete_audio_artifacts,
+    download_video_audio,
+    fetch_caption_transcript,
+    format_youtube_access_error,
     run_groq_transcription,
     transcribe_video,
 )
@@ -73,6 +80,46 @@ async def test_transcribe_video_reports_missing_groq_key_after_caption_miss(monk
     assert result.is_successful is False
     assert result.error_message is not None
     assert "No YouTube captions were available" in result.error_message
+    assert "GROQ_API_KEY is not configured" in result.error_message
+
+
+@pytest.mark.asyncio
+async def test_transcribe_video_adds_cookie_hint_when_private_video_blocks_captions_and_groq_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
+    monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
+    config_module.load_dotenv_files.cache_clear()
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.get_yt_dlp_runtime_error_message",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.fetch_caption_transcript",
+        lambda video_id, preferred_language: CaptionTranscriptResult(
+            text=None,
+            language=None,
+            error_message=(
+                "Could not read YouTube caption metadata: ERROR: [youtube] private123: "
+                "Private video. Sign in if you've been granted access"
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.get_groq_api_key",
+        lambda: None,
+    )
+
+    result = await transcribe_video(
+        request=TranscribeVideoRequest(video_id="private123")
+    )
+
+    assert result.is_successful is False
+    assert result.error_message is not None
+    assert "YT_DLP_COOKIES_FROM_BROWSER" in result.error_message
+    assert "YT_DLP_COOKIES_FILE" in result.error_message
     assert "GROQ_API_KEY is not configured" in result.error_message
 
 
@@ -366,3 +413,210 @@ async def test_transcribe_video_reports_local_rate_limit_preflight(monkeypatch) 
     assert result.is_successful is False
     assert result.error_message is not None
     assert "preflight blocked" in result.error_message
+
+
+def test_build_yt_dlp_options_uses_browser_cookies_when_configured(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "chrome")
+    monkeypatch.setenv("YT_DLP_COOKIES_FILE", "/tmp/cookies.txt")
+    config_module.load_dotenv_files.cache_clear()
+
+    options = build_yt_dlp_options(quiet=True, noplaylist=True)
+
+    assert options["quiet"] is True
+    assert options["noplaylist"] is True
+    assert options["cookiesfrombrowser"] == ("chrome",)
+    assert "cookiefile" not in options
+
+
+def test_build_yt_dlp_options_uses_cookie_file_when_browser_not_configured(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
+    monkeypatch.setenv("YT_DLP_COOKIES_FILE", "/tmp/cookies.txt")
+    config_module.load_dotenv_files.cache_clear()
+
+    options = build_yt_dlp_options(quiet=True)
+
+    assert options["cookiefile"] == "/tmp/cookies.txt"
+
+
+def test_fetch_caption_transcript_retries_logged_in_browser_cookies_for_private_video(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
+    monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
+    config_module.load_dotenv_files.cache_clear()
+
+    attempts: list[dict[str, object]] = []
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, object]) -> None:
+            self.options = dict(options)
+
+        def __enter__(self) -> "FakeYoutubeDL":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def extract_info(self, video_url: str, download: bool = False) -> dict[str, object]:
+            assert video_url == "https://www.youtube.com/watch?v=private123"
+            assert download is False
+            attempts.append(self.options)
+
+            if "cookiesfrombrowser" not in self.options:
+                raise RuntimeError(
+                    "ERROR: [youtube] private123: Private video. Sign in if you've been granted access"
+                )
+
+            return {
+                "subtitles": {
+                    "en": [
+                        {
+                            "url": "https://example.com/private123.vtt",
+                            "ext": "vtt",
+                        }
+                    ]
+                }
+            }
+
+    fake_yt_dlp_module = type("FakeYtDlpModule", (), {"YoutubeDL": FakeYoutubeDL})
+    original_import_module = importlib.import_module
+
+    def fake_import_module(module_name: str):
+        if module_name == "yt_dlp":
+            return fake_yt_dlp_module
+        return original_import_module(module_name)
+
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.importlib.import_module",
+        fake_import_module,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.platform.system",
+        lambda: "Darwin",
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.download_text_from_url",
+        lambda url: "WEBVTT\n\nhello from private captions",
+    )
+
+    result = fetch_caption_transcript(video_id="private123", preferred_language=None)
+
+    assert result.text == "hello from private captions"
+    assert result.language == "en"
+    assert len(attempts) == 2
+    assert "cookiesfrombrowser" not in attempts[0]
+    assert attempts[1]["cookiesfrombrowser"] == ("safari",)
+
+
+def test_download_video_audio_retries_logged_in_browser_cookies_for_private_video(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
+    monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
+    config_module.load_dotenv_files.cache_clear()
+
+    attempts: list[dict[str, object]] = []
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, object]) -> None:
+            self.options = dict(options)
+
+        def __enter__(self) -> "FakeYoutubeDL":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def download(self, urls: list[str]) -> None:
+            assert urls == ["https://www.youtube.com/watch?v=private123"]
+            attempts.append(self.options)
+
+            if "cookiesfrombrowser" not in self.options:
+                raise RuntimeError(
+                    "ERROR: [youtube] private123: Private video. Sign in if you've been granted access"
+                )
+
+            output_template = str(self.options["outtmpl"])
+            output_path = Path(output_template.replace("%(ext)s", "webm"))
+            output_path.write_bytes(b"private audio bytes")
+
+    fake_yt_dlp_module = type("FakeYtDlpModule", (), {"YoutubeDL": FakeYoutubeDL})
+    original_import_module = importlib.import_module
+
+    def fake_import_module(module_name: str):
+        if module_name == "yt_dlp":
+            return fake_yt_dlp_module
+        return original_import_module(module_name)
+
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.importlib.import_module",
+        fake_import_module,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.platform.system",
+        lambda: "Darwin",
+    )
+
+    audio_path = download_video_audio(video_id="private123")
+
+    assert Path(audio_path).exists()
+    assert len(attempts) == 2
+    assert "cookiesfrombrowser" not in attempts[0]
+    assert attempts[1]["cookiesfrombrowser"] == ("safari",)
+
+    delete_audio_artifacts(audio_path=audio_path)
+
+
+@pytest.mark.asyncio
+async def test_transcribe_video_skips_unrecoverable_removed_video(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.get_yt_dlp_runtime_error_message",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "app.services.transcription_executor_service.fetch_caption_transcript",
+        lambda video_id, preferred_language: CaptionTranscriptResult(
+            text=None,
+            language=None,
+            error_message=(
+                "Could not read YouTube caption metadata: ERROR: [youtube] abc123: "
+                "Video unavailable. This video has been removed by the uploader"
+            ),
+        ),
+    )
+
+    result = await transcribe_video(request=TranscribeVideoRequest(video_id="abc123"))
+
+    assert result.is_successful is False
+    assert result.should_skip is True
+    assert result.error_message is not None
+    assert "removed by the uploader" in result.error_message
+
+
+def test_format_youtube_access_error_adds_cookie_hint_for_private_video(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
+    monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
+    config_module.load_dotenv_files.cache_clear()
+
+    message = format_youtube_access_error(
+        error_message=(
+            "ERROR: [youtube] private123: Private video. Sign in if you've been granted access"
+        )
+    )
+
+    assert "YT_DLP_COOKIES_FROM_BROWSER" in message
+    assert "YT_DLP_COOKIES_FILE" in message
+    assert "sign into youtube" in message.lower()

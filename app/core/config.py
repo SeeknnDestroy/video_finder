@@ -39,6 +39,8 @@ class AppConfig(BaseModel):
     youtube_api_key: str | None = None
     groq_api_key: str | None = None
     groq_transcription_model: str = Field(default=GROQ_MODEL_WHISPER_LARGE_V3_TURBO)
+    yt_dlp_cookies_from_browser: str | None = None
+    yt_dlp_cookies_file: str | None = None
     log_level: str = Field(default="INFO")
     transcribe_language: str | None = None
     transcribe_worker_concurrency: int = Field(default=1, ge=1)
@@ -72,6 +74,12 @@ def get_app_config() -> AppConfig:
             raw_value=os.getenv("GROQ_TRANSCRIPTION_MODEL"),
             legacy_size_value=os.getenv("TRANSCRIBE_MODEL_SIZE"),
             default_value=GROQ_MODEL_WHISPER_LARGE_V3_TURBO,
+        ),
+        yt_dlp_cookies_from_browser=normalize_optional_string_env(
+            raw_value=os.getenv("YT_DLP_COOKIES_FROM_BROWSER")
+        ),
+        yt_dlp_cookies_file=normalize_optional_string_env(
+            raw_value=os.getenv("YT_DLP_COOKIES_FILE")
         ),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         transcribe_language=raw_transcribe_language or None,
@@ -130,6 +138,17 @@ def normalize_model_env_value(raw_value: str | None) -> str | None:
         return None
 
     normalized_value = raw_value.strip().lower()
+    if not normalized_value:
+        return None
+
+    return normalized_value
+
+
+def normalize_optional_string_env(*, raw_value: str | None) -> str | None:
+    if raw_value is None:
+        return None
+
+    normalized_value = raw_value.strip()
     if not normalized_value:
         return None
 

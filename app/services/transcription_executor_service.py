@@ -7,9 +7,11 @@ import json
 import logging
 import math
 import mimetypes
+import platform
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Callable, TypeVar
 from urllib.request import urlopen
 
 import aiosqlite
@@ -27,6 +29,14 @@ from app.services.groq_rate_limit_service import (
 GROQ_TRANSCRIPTIONS_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 logger = logging.getLogger(__name__)
+YT_DLP_AUTO_BROWSER_COOKIE_SOURCES_BY_PLATFORM = {
+    "darwin": ("safari", "chrome", "firefox", "edge", "brave", "chromium"),
+    "windows": ("edge", "chrome", "firefox", "brave", "chromium"),
+    "linux": ("chrome", "chromium", "firefox", "edge", "brave"),
+}
+DEFAULT_YT_DLP_AUTO_BROWSER_COOKIE_SOURCES = ("chrome", "chromium", "firefox", "edge", "brave")
+
+T = TypeVar("T")
 
 
 class TranscribeVideoRequest(BaseModel):
@@ -39,6 +49,7 @@ class TranscribeVideoResult(BaseModel):
     text: str | None = None
     language: str | None = None
     error_message: str | None = None
+    should_skip: bool = False
 
 
 class CaptionTranscriptResult(BaseModel):
@@ -70,14 +81,27 @@ async def transcribe_video(*, request: TranscribeVideoRequest) -> TranscribeVide
             language=caption_result.language,
         )
 
+    resolved_caption_error_message = None
+    if caption_result.error_message:
+        resolved_caption_error_message = format_youtube_access_error(
+            error_message=caption_result.error_message
+        )
+
+    if classify_youtube_access_error(error_message=caption_result.error_message) == "skip":
+        return TranscribeVideoResult(
+            is_successful=False,
+            error_message=resolved_caption_error_message,
+            should_skip=True,
+        )
+
     groq_api_key = get_groq_api_key()
     if not groq_api_key:
         groq_runtime_error = "GROQ_API_KEY is not configured."
-        if caption_result.error_message:
+        if resolved_caption_error_message:
             return TranscribeVideoResult(
                 is_successful=False,
                 error_message=(
-                    f"{caption_result.error_message} "
+                    f"{resolved_caption_error_message} "
                     f"Groq transcription fallback is unavailable: {groq_runtime_error}"
                 ),
             )
@@ -130,9 +154,12 @@ async def transcribe_video(*, request: TranscribeVideoRequest) -> TranscribeVide
         )
     except Exception as exc:
         groq_request_error_message = str(exc)
+        classified_error = classify_youtube_access_error(error_message=str(exc))
+        resolved_error_message = format_youtube_access_error(error_message=str(exc))
         return TranscribeVideoResult(
             is_successful=False,
-            error_message=f"Transcription failed for {request.video_id}: {exc}",
+            error_message=f"Transcription failed for {request.video_id}: {resolved_error_message}",
+            should_skip=(classified_error == "skip"),
         )
     finally:
         if groq_reservation_id:
@@ -167,7 +194,7 @@ def fetch_caption_transcript(*, video_id: str, preferred_language: str | None) -
         return CaptionTranscriptResult(error_message="yt-dlp is not installed.")
 
     video_url = f"https://www.youtube.com/watch?v={video_id}"
-    download_options = {
+    base_options = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
@@ -175,8 +202,11 @@ def fetch_caption_transcript(*, video_id: str, preferred_language: str | None) -
     }
 
     try:
-        with yt_dlp_module.YoutubeDL(download_options) as downloader:
-            info = downloader.extract_info(video_url, download=False)
+        info = run_yt_dlp_operation_with_auth_retry(
+            yt_dlp_module=yt_dlp_module,
+            base_options=base_options,
+            operation=lambda downloader: downloader.extract_info(video_url, download=False),
+        )
     except Exception as exc:
         return CaptionTranscriptResult(error_message=f"Could not read YouTube caption metadata: {exc}")
 
@@ -469,7 +499,7 @@ def fetch_video_duration_seconds_with_ytdlp(*, video_id: str) -> int | None:
         return None
 
     video_url = f"https://www.youtube.com/watch?v={video_id}"
-    download_options = {
+    base_options = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
@@ -477,9 +507,13 @@ def fetch_video_duration_seconds_with_ytdlp(*, video_id: str) -> int | None:
     }
 
     try:
-        with yt_dlp_module.YoutubeDL(download_options) as downloader:
-            info = downloader.extract_info(video_url, download=False)
-    except Exception:
+        info = run_yt_dlp_operation_with_auth_retry(
+            yt_dlp_module=yt_dlp_module,
+            base_options=base_options,
+            operation=lambda downloader: downloader.extract_info(video_url, download=False),
+        )
+    except Exception as exc:
+        logger.debug("Could not resolve video duration with yt-dlp video_id=%s error=%s", video_id, exc)
         return None
 
     duration_value = info.get("duration")
@@ -504,16 +538,18 @@ def download_video_audio(*, video_id: str) -> str:
     output_template = str(temp_directory_path / "audio.%(ext)s")
     video_url = f"https://www.youtube.com/watch?v={video_id}"
 
-    download_options = {
+    base_options = {
         "format": "bestaudio/best",
         "outtmpl": output_template,
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
     }
-
-    with yt_dlp_module.YoutubeDL(download_options) as downloader:
-        downloader.download([video_url])
+    run_yt_dlp_operation_with_auth_retry(
+        yt_dlp_module=yt_dlp_module,
+        base_options=base_options,
+        operation=lambda downloader: downloader.download([video_url]),
+    )
 
     downloaded_files = [path for path in temp_directory_path.iterdir() if path.is_file()]
     if not downloaded_files:
@@ -593,6 +629,171 @@ def run_groq_transcription(
         "text": normalize_caption_text(raw_text=raw_text),
         "language": language or None,
     }
+
+
+def build_yt_dlp_options(**base_options: object) -> dict[str, object]:
+    app_config = get_app_config()
+    return apply_yt_dlp_auth_options(
+        base_options=base_options,
+        cookies_from_browser=app_config.yt_dlp_cookies_from_browser,
+        cookies_file=app_config.yt_dlp_cookies_file,
+    )
+
+
+def apply_yt_dlp_auth_options(
+    *,
+    base_options: dict[str, object],
+    cookies_from_browser: str | None,
+    cookies_file: str | None,
+) -> dict[str, object]:
+    options = dict(base_options)
+
+    if cookies_from_browser:
+        options["cookiesfrombrowser"] = (cookies_from_browser,)
+    elif cookies_file:
+        options["cookiefile"] = cookies_file
+
+    return options
+
+
+def run_yt_dlp_operation_with_auth_retry(
+    *,
+    yt_dlp_module: object,
+    base_options: dict[str, object],
+    operation: Callable[[object], T],
+) -> T:
+    try:
+        return run_yt_dlp_operation(
+            yt_dlp_module=yt_dlp_module,
+            options=build_yt_dlp_options(**base_options),
+            operation=operation,
+        )
+    except Exception as exc:
+        if has_configured_yt_dlp_cookie_source():
+            raise
+
+        if classify_youtube_access_error(error_message=str(exc)) != "auth_required":
+            raise
+
+        original_exception = exc
+
+    for browser_name in get_auto_yt_dlp_browser_cookie_sources():
+        try:
+            result = run_yt_dlp_operation(
+                yt_dlp_module=yt_dlp_module,
+                options=apply_yt_dlp_auth_options(
+                    base_options=base_options,
+                    cookies_from_browser=browser_name,
+                    cookies_file=None,
+                ),
+                operation=operation,
+            )
+            logger.info(
+                "yt-dlp authenticated browser-cookie retry succeeded browser=%s",
+                browser_name,
+            )
+            return result
+        except Exception as exc:
+            if classify_youtube_access_error(error_message=str(exc)) == "skip":
+                raise
+
+            logger.debug(
+                "yt-dlp browser-cookie retry failed browser=%s error=%s",
+                browser_name,
+                exc,
+            )
+
+    raise original_exception
+
+
+def run_yt_dlp_operation(
+    *,
+    yt_dlp_module: object,
+    options: dict[str, object],
+    operation: Callable[[object], T],
+) -> T:
+    with yt_dlp_module.YoutubeDL(options) as downloader:
+        return operation(downloader)
+
+
+def has_configured_yt_dlp_cookie_source() -> bool:
+    app_config = get_app_config()
+    return bool(app_config.yt_dlp_cookies_from_browser or app_config.yt_dlp_cookies_file)
+
+
+def get_auto_yt_dlp_browser_cookie_sources() -> tuple[str, ...]:
+    platform_name = platform.system().strip().lower()
+    return YT_DLP_AUTO_BROWSER_COOKIE_SOURCES_BY_PLATFORM.get(
+        platform_name,
+        DEFAULT_YT_DLP_AUTO_BROWSER_COOKIE_SOURCES,
+    )
+
+
+def format_browser_cookie_source_list(*, browser_names: tuple[str, ...]) -> str:
+    display_names = [browser_name.title() for browser_name in browser_names if browser_name]
+    if not display_names:
+        return "a supported browser"
+
+    if len(display_names) == 1:
+        return display_names[0]
+
+    if len(display_names) == 2:
+        return f"{display_names[0]} or {display_names[1]}"
+
+    return f"{', '.join(display_names[:-1])}, or {display_names[-1]}"
+
+
+def classify_youtube_access_error(*, error_message: str | None) -> str | None:
+    normalized_error_message = (error_message or "").strip().lower()
+    if not normalized_error_message:
+        return None
+
+    unrecoverable_fragments = (
+        "video has been removed by the uploader",
+        "video is no longer available because the youtube account associated with this video has been terminated",
+        "video is no longer available because the uploader has closed their youtube account",
+        "this video is not available",
+        "this video is no longer available",
+        "blocked in your country on copyright grounds",
+    )
+    if any(fragment in normalized_error_message for fragment in unrecoverable_fragments):
+        return "skip"
+
+    auth_required_fragments = (
+        "private video",
+        "sign in if you've been granted access",
+        "cookies-from-browser",
+        "use --cookies",
+        "members-only",
+        "confirm your age",
+    )
+    if any(fragment in normalized_error_message for fragment in auth_required_fragments):
+        return "auth_required"
+
+    return None
+
+
+def format_youtube_access_error(*, error_message: str) -> str:
+    classification = classify_youtube_access_error(error_message=error_message)
+    if classification != "auth_required":
+        return error_message
+
+    app_config = get_app_config()
+    if app_config.yt_dlp_cookies_from_browser or app_config.yt_dlp_cookies_file:
+        return (
+            f"{error_message} The configured yt-dlp cookies still do not grant access "
+            "to this video."
+        )
+
+    auto_browser_list = format_browser_cookie_source_list(
+        browser_names=get_auto_yt_dlp_browser_cookie_sources()
+    )
+    return (
+        f"{error_message} The simplest path is to sign into YouTube in {auto_browser_list} "
+        "on this machine and retry; the app will automatically retry browser cookies for "
+        "sign-in-required videos. If you use a different browser or profile, configure "
+        "YT_DLP_COOKIES_FROM_BROWSER or YT_DLP_COOKIES_FILE."
+    )
 
 
 def format_bytes_as_megabytes(*, byte_count: int) -> str:

@@ -97,6 +97,8 @@ The app loads environment variables from `.env` automatically if the file exists
 | `YOUTUBE_API_KEY` | unset | Enables metadata enrichment for uncached videos |
 | `GROQ_API_KEY` | unset | Enables Groq speech-to-text fallback when captions are unavailable |
 | `GROQ_TRANSCRIPTION_MODEL` | `whisper-large-v3-turbo` | Active Groq speech-to-text model (`whisper-large-v3` or `whisper-large-v3-turbo`) |
+| `YT_DLP_COOKIES_FROM_BROWSER` | unset | Optional advanced override to pin authenticated `yt-dlp` cookie import to one browser, for example `chrome` or `firefox` |
+| `YT_DLP_COOKIES_FILE` | unset | Optional advanced override for a Netscape-format cookies file path |
 | `LOG_LEVEL` | `INFO` | App logging level |
 | `TRANSCRIBE_LANGUAGE` | auto-detect | Optional fixed transcript language |
 | `TRANSCRIBE_WORKER_CONCURRENCY` | `1` | Concurrent transcription jobs |
@@ -105,6 +107,8 @@ The app loads environment variables from `.env` automatically if the file exists
 | `TRANSCRIBE_WORKER_ENABLED` | `true` | Starts the in-process worker on app startup |
 
 `GROQ_TRANSCRIPTION_MODEL` also accepts the legacy `TRANSCRIBE_MODEL_SIZE` alias values `turbo` and `large` for backward compatibility.
+
+For private, members-only, or age-restricted videos, the default happy path is simple: log into YouTube in a supported local browser and retry. The app first tries public access, then automatically retries common browser-cookie sources on sign-in-required failures. Use `YT_DLP_COOKIES_FROM_BROWSER` or `YT_DLP_COOKIES_FILE` only if you need to pin a specific browser/profile or use an exported cookie file.
 
 ## Search Capabilities
 
@@ -144,6 +148,8 @@ data/          local database path placeholder
 - This repository intentionally ignores personal/local artifacts such as `.env`, SQLite database files, and raw `watch-history.json` exports.
 - Without `YOUTUBE_API_KEY`, the app still works, but metadata-dependent filters may skip uncached videos.
 - When captions are unavailable, transcription falls back to the configured Groq model and requires `GROQ_API_KEY`.
+- Private or account-restricted YouTube videos first try public access, then automatically retry common logged-in browser cookies. The override env vars are only needed when you want to pin a specific browser/profile or cookie file.
+- Permanently unavailable YouTube videos, such as removed or terminated-account videos, are now marked as skipped instead of failed.
 - Groq fallback is guarded by a SQLite-backed local preflight limiter so concurrent workers do not oversubscribe Groq request or audio-duration quotas.
 - Inspect current Groq limiter usage with the JSON endpoint `/jobs/groq/rate-limit`.
 - Built-in Groq limits are enforced per model:

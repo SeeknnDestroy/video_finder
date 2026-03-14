@@ -212,6 +212,56 @@ async def test_worker_uses_job_language_override_from_payload(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_worker_marks_items_skipped_on_unrecoverable_video_error(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "worker_skip.db"
+    initialize_result = await initialize_database(request=InitializeDatabaseRequest(db_path=str(db_path)))
+    assert initialize_result.is_successful
+
+    async with get_database_connection(request=DatabaseConnectionRequest(db_path=str(db_path))) as db:
+        await seed_job_item(db=db, job_id="job-skip", video_id="video-skip")
+
+    async def fake_transcribe_video(*, request):
+        assert request.video_id == "video-skip"
+        return TranscribeVideoResult(
+            is_successful=False,
+            should_skip=True,
+            error_message="Video unavailable. This video has been removed by the uploader",
+        )
+
+    monkeypatch.setattr("app.services.job_runner_service.transcribe_video", fake_transcribe_video)
+
+    run_result = await run_transcription_worker(
+        request=WorkerRunRequest(
+            db_path=str(db_path),
+            run_once=True,
+            max_concurrency=1,
+            poll_seconds=0.01,
+        )
+    )
+
+    assert run_result.is_successful
+    assert run_result.processed_count == 1
+
+    async with get_database_connection(request=DatabaseConnectionRequest(db_path=str(db_path))) as db:
+        item_cursor = await db.execute(
+            "SELECT status, error_message FROM transcription_job_items WHERE job_id = ? AND video_id = ?",
+            ("job-skip", "video-skip"),
+        )
+        item_row = await item_cursor.fetchone()
+
+        job_cursor = await db.execute(
+            "SELECT status, error_message FROM transcription_jobs WHERE job_id = ?",
+            ("job-skip",),
+        )
+        job_row = await job_cursor.fetchone()
+
+    assert item_row["status"] == "skipped"
+    assert "removed by the uploader" in item_row["error_message"]
+    assert job_row["status"] == "completed_with_errors"
+    assert "skipped" in job_row["error_message"]
+
+
+@pytest.mark.asyncio
 async def test_worker_rate_limit_behavior_with_concurrency_one(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "worker_rate_limit_single.db"
     initialize_result = await initialize_database(request=InitializeDatabaseRequest(db_path=str(db_path)))

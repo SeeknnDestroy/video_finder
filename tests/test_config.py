@@ -48,6 +48,9 @@ def test_transcription_settings_have_groq_defaults(tmp_path, monkeypatch) -> Non
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("GROQ_TRANSCRIPTION_MODEL", raising=False)
     monkeypatch.delenv("TRANSCRIBE_MODEL_SIZE", raising=False)
+    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
+    monkeypatch.delenv("YT_DLP_COOKIES_FILE", raising=False)
+    monkeypatch.delenv("TRANSCRIBE_LANGUAGE", raising=False)
     monkeypatch.delenv("TRANSCRIBE_WORKER_CONCURRENCY", raising=False)
     monkeypatch.delenv("TRANSCRIBE_JOB_MAX_CANDIDATES", raising=False)
     monkeypatch.delenv("TRANSCRIBE_WORKER_POLL_SECONDS", raising=False)
@@ -58,6 +61,8 @@ def test_transcription_settings_have_groq_defaults(tmp_path, monkeypatch) -> Non
 
     assert app_config.groq_api_key is None
     assert app_config.groq_transcription_model == "whisper-large-v3-turbo"
+    assert app_config.yt_dlp_cookies_from_browser is None
+    assert app_config.yt_dlp_cookies_file is None
     assert app_config.transcribe_language is None
     assert app_config.transcribe_worker_concurrency == 1
     assert app_config.transcribe_job_max_candidates == 200
@@ -87,3 +92,15 @@ def test_groq_transcription_model_supports_legacy_size_alias(tmp_path, monkeypat
 
     assert app_config.groq_transcription_model == "whisper-large-v3-turbo"
     assert app_config.groq_transcription_rate_limits().audio_seconds_per_hour == 400_000
+
+
+def test_yt_dlp_cookie_settings_are_loaded_from_env(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "chrome")
+    monkeypatch.setenv("YT_DLP_COOKIES_FILE", "/tmp/cookies.txt")
+    config_module.load_dotenv_files.cache_clear()
+
+    app_config = config_module.get_app_config()
+
+    assert app_config.yt_dlp_cookies_from_browser == "chrome"
+    assert app_config.yt_dlp_cookies_file == "/tmp/cookies.txt"

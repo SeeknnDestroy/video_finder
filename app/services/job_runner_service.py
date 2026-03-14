@@ -57,6 +57,7 @@ class BatchProcessSummary(BaseModel):
     processed_count: int
     completed_count: int
     failed_count: int
+    skipped_count: int
     duration_seconds: float
 
 
@@ -107,10 +108,11 @@ async def run_transcription_worker(*, request: WorkerRunRequest) -> WorkerRunRes
                 )
                 processed_count += batch_summary.processed_count
                 logger.info(
-                    "Transcription batch finished processed=%s completed=%s failed=%s duration=%.2fs",
+                    "Transcription batch finished processed=%s completed=%s failed=%s skipped=%s duration=%.2fs",
                     batch_summary.processed_count,
                     batch_summary.completed_count,
                     batch_summary.failed_count,
+                    batch_summary.skipped_count,
                     batch_summary.duration_seconds,
                 )
 
@@ -224,6 +226,7 @@ async def process_claimed_items(
             processed_count=0,
             completed_count=0,
             failed_count=0,
+            skipped_count=0,
             duration_seconds=0,
         )
 
@@ -259,11 +262,13 @@ async def process_claimed_items(
 
     completed_count = sum(1 for result in item_results if result.status == ITEM_STATUS_COMPLETED)
     failed_count = sum(1 for result in item_results if result.status == ITEM_STATUS_FAILED)
+    skipped_count = sum(1 for result in item_results if result.status == ITEM_STATUS_SKIPPED)
 
     return BatchProcessSummary(
         processed_count=len(item_results),
         completed_count=completed_count,
         failed_count=failed_count,
+        skipped_count=skipped_count,
         duration_seconds=batch_duration_seconds,
     )
 
@@ -339,6 +344,7 @@ async def process_job_item(
                 duration_seconds=duration_seconds,
             )
 
+        item_status = ITEM_STATUS_SKIPPED if transcription_result.should_skip else ITEM_STATUS_FAILED
         error_message = transcription_result.error_message or "Transcription failed."
         await db.execute(
             """
@@ -349,12 +355,14 @@ async def process_job_item(
             WHERE job_id = ?
             AND video_id = ?
             """,
-            (ITEM_STATUS_FAILED, error_message, claimed_item.job_id, claimed_item.video_id),
+            (item_status, error_message, claimed_item.job_id, claimed_item.video_id),
         )
         await db.commit()
         duration_seconds = perf_counter() - item_started_at
-        logger.warning(
-            "Transcription item failed job_id=%s video_id=%s resolved_language=%s duration=%.2fs error=%s",
+        log_method = logger.info if item_status == ITEM_STATUS_SKIPPED else logger.warning
+        log_method(
+            "Transcription item %s job_id=%s video_id=%s resolved_language=%s duration=%.2fs error=%s",
+            item_status,
             claimed_item.job_id,
             claimed_item.video_id,
             resolved_language,
@@ -364,7 +372,7 @@ async def process_job_item(
         return ItemProcessResult(
             job_id=claimed_item.job_id,
             video_id=claimed_item.video_id,
-            status=ITEM_STATUS_FAILED,
+            status=item_status,
             duration_seconds=duration_seconds,
         )
     except Exception as exc:
@@ -421,10 +429,18 @@ async def recompute_job_status(*, db: aiosqlite.Connection, job_id: str) -> JobS
         status = JOB_STATUS_FAILED
         finished_at = datetime.now(timezone.utc).isoformat()
         error_message = "All transcription items failed."
+    elif skipped_count == total_count:
+        status = JOB_STATUS_COMPLETED_WITH_ERRORS
+        finished_at = datetime.now(timezone.utc).isoformat()
+        error_message = "All transcription items were skipped."
     elif failed_count > 0:
         status = JOB_STATUS_COMPLETED_WITH_ERRORS
         finished_at = datetime.now(timezone.utc).isoformat()
         error_message = f"{failed_count} transcription items failed."
+    elif skipped_count > 0:
+        status = JOB_STATUS_COMPLETED_WITH_ERRORS
+        finished_at = datetime.now(timezone.utc).isoformat()
+        error_message = f"{skipped_count} transcription items were skipped."
     else:
         status = JOB_STATUS_COMPLETED
         finished_at = datetime.now(timezone.utc).isoformat()
