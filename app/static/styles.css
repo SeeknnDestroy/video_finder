@@ -726,10 +726,14 @@ button:focus,
 .results-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   justify-content: stretch;
+  align-items: start;
 }
 
 .video-card {
   display: grid;
+  grid-template-rows: auto 1fr;
+  align-self: start;
+  align-content: start;
   border-radius: 22px;
   overflow: hidden;
   border: 1px solid rgba(16, 34, 54, 0.1);
@@ -750,13 +754,15 @@ button:focus,
 
 .video-card__media {
   position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
 }
 
 .video-card img,
 .thumbnail-placeholder {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  height: 100%;
 }
 
 .video-card img {
