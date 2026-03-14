@@ -724,8 +724,8 @@ button:focus,
 }
 
 .results-grid {
-  grid-template-columns: repeat(auto-fit, minmax(320px, 420px));
-  justify-content: start;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  justify-content: stretch;
 }
 
 .video-card {
@@ -973,6 +973,10 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .results-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .hero-copy h1 {
     max-width: 100%;
   }
@@ -1011,6 +1015,10 @@ code {
 
   .grid-two,
   .grid-three {
+    grid-template-columns: 1fr;
+  }
+
+  .results-grid {
     grid-template-columns: 1fr;
   }
 
